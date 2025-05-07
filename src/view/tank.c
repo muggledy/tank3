@@ -4,7 +4,8 @@
 #include "tank.h"
 
 px_color color_palette[][2] = {
-	{{178,0,0, 255}, {255,76,76, 255}}, //tank gun barrel and tank body's color
+	{{178,0,0, 255}, {255,76,76, 255}}, //red. tank gun barrel and tank body's color
+    {{0,0,0, 255}, {76,76,76, 255}} //black
 };
 
 Point rotate_point(Point point, double angle, Point pivot) { // 绕指定点pivot旋转一个点point
@@ -30,7 +31,7 @@ Point rotate_point(Point point, double angle, Point pivot) { // 绕指定点pivo
     return rotated_point;
 }
 
-void calculate_rotated_rectangle(Point pos1, double width, double height, double angle_deg, Rectangle *rect) { //计算旋转后矩形的四个顶点坐标
+void calculate_rotated_rectangle_v0(Point pos1, double width, double height, double angle_deg, Rectangle *rect) { //计算旋转后矩形的四个顶点坐标,pos1代表的是矩形左上角顶点
     double angle = angle_deg * (M_PI / 180);  // 将角度转换为弧度
     // 未旋转时矩形的四个顶点坐标
     Point points[4] = {
@@ -38,6 +39,24 @@ void calculate_rotated_rectangle(Point pos1, double width, double height, double
         {pos1.x + width, pos1.y},
         {pos1.x + width, pos1.y + height},
 		{pos1.x, pos1.y + height}
+    };
+	Point *result = (Point *)rect;
+
+    // 旋转每个顶点
+    for (int i = 0; i < 4; i++) {
+        result[i] = rotate_point(points[i], angle, pos1);
+		// printf("Vertex %d: (%.2f, %.2f)\n", i + 1, result[i].x, result[i].y);
+    }
+}
+
+void calculate_rotated_rectangle_v1(Point pos1, double width, double height, double angle_deg, Rectangle *rect) { //此处pos1代表的是矩形中心点
+    double angle = angle_deg * (M_PI / 180);  // 将角度转换为弧度
+    // 未旋转时矩形的四个顶点坐标
+    Point points[4] = {
+        {pos1.x - (width/2), pos1.y - (height/2)},
+        {pos1.x + (width/2), pos1.y - (height/2)},
+        {pos1.x + (width/2), pos1.y + (height/2)},
+		{pos1.x - (width/2), pos1.y + (height/2)}
     };
 	Point *result = (Point *)rect;
 
@@ -115,7 +134,7 @@ void scanline_traversal_rectangle_and_fill(Rectangle *rect, px_color color) { //
     }
 }
 
-Rectangle PainterEngine_DrawSolidRect(px_int x,px_int y,px_int width,px_int height,px_double angle_deg,px_color fill_color)
+Rectangle PainterEngine_DrawSolidRect_v0(px_int x,px_int y,px_int width,px_int height,px_double angle_deg,px_color fill_color)
 {
 	Rectangle rect;
 	Point lefttop_pos;
@@ -123,9 +142,29 @@ Rectangle PainterEngine_DrawSolidRect(px_int x,px_int y,px_int width,px_int heig
 	{
 		PX_ObjectSetVisible(App.object_printer, PX_TRUE);
 	}
-	lefttop_pos.x = x;
-	lefttop_pos.y = y;
-    calculate_rotated_rectangle(lefttop_pos, width, height, angle_deg, &rect);
+    SetPosition(lefttop_pos, x, y);
+    calculate_rotated_rectangle_v0(lefttop_pos, width, height, angle_deg, &rect);
+	px_color line_color = fill_color; //PX_COLOR(255, 255, 0, 0);
+	line_color._argb.a -= 80;
+	PainterEngine_DrawLine(POINT2POS(rect.lefttop), POINT2POS(rect.righttop), 1, line_color); //绘制边线，这是为了抗锯齿的临时之举
+	PainterEngine_DrawLine(POINT2POS(rect.lefttop), POINT2POS(rect.leftbottom), 1, line_color);
+	PainterEngine_DrawLine(POINT2POS(rect.leftbottom), POINT2POS(rect.rightbottom), 1, line_color);
+	PainterEngine_DrawLine(POINT2POS(rect.righttop), POINT2POS(rect.rightbottom), 1, line_color);
+
+	scanline_traversal_rectangle_and_fill(&rect, fill_color);
+	return rect;
+}
+
+Rectangle PainterEngine_DrawSolidRect_v1(px_int x,px_int y,px_int width,px_int height,px_double angle_deg,px_color fill_color)
+{
+	Rectangle rect;
+	Point center_pos;
+	if (App.object_printer->Visible == PX_FALSE)
+	{
+		PX_ObjectSetVisible(App.object_printer, PX_TRUE);
+	}
+    SetPosition(center_pos, x, y);
+    calculate_rotated_rectangle_v1(center_pos, width, height, angle_deg, &rect);
 	px_color line_color = fill_color; //PX_COLOR(255, 255, 0, 0);
 	line_color._argb.a -= 80;
 	PainterEngine_DrawLine(POINT2POS(rect.lefttop), POINT2POS(rect.righttop), 1, line_color); //绘制边线，这是为了抗锯齿的临时之举
@@ -164,20 +203,79 @@ double get_length_of_two_points(const Point *p1, const Point *p2) {
     return sqrt(dx * dx + dy * dy);
 }
 
-int draw_tank() {
-	Point tank_lefttop = {200, 200};
-	px_double angle_deg = 0;
-	px_color color = color_palette[PALETTE_RED][0], color2 = color_palette[PALETTE_RED][1];
+void draw_tank_v0(Point tank_lefttop, px_double angle_deg, int palette_color_id) { //deprecated
+    /* lefttop(the anchor point to rotate around)
+         ↖︎
+           ▛▀▀▀▀▀▜
+           ▌   ⏹︎⏹︎⏹︎⏹︎    East: angle_deg == 0. rotate clockwise
+           ▙▄▄▄▄▄▟
+
+       angle_deg should range in [0, 360]
+    */
+	px_color color = color_palette[palette_color_id][0], color2 = color_palette[palette_color_id][1];
 	Rectangle rect;
 	Point rect_center, topline_center, gun_barrel_lefttop;
-	rect = PainterEngine_DrawSolidRect(POINT2POS(tank_lefttop), 27, 20, angle_deg, color2);
+	rect = PainterEngine_DrawSolidRect_v0(POINT2POS(tank_lefttop), 27, 20, angle_deg, color2);
 	PainterEngine_DrawLine(POINT2POS(rect.lefttop), POINT2POS(rect.righttop), 3, color);
 	PainterEngine_DrawLine(POINT2POS(rect.leftbottom), POINT2POS(rect.rightbottom), 3, color);
 	rect_center = get_rectangle_center(&rect);
 	PainterEngine_DrawSolidCircle(POINT2POS(rect_center), 9, color);
 	topline_center = get_line_center(&rect.lefttop, &rect.righttop);
 	gun_barrel_lefttop = get_line_k_center(&rect_center, &topline_center, 0.46);
-	PainterEngine_DrawSolidRect(POINT2POS(gun_barrel_lefttop), 18, (int)round(get_length_of_two_points(&rect_center,&gun_barrel_lefttop)*2), 
+	PainterEngine_DrawSolidRect_v0(POINT2POS(gun_barrel_lefttop), 18, (int)round(get_length_of_two_points(&rect_center,&gun_barrel_lefttop)*2), 
 		angle_deg, color);
-    return 0;
+}
+
+void draw_tank_v1(Point tank_center, px_double angle_deg, int palette_color_id) {
+    /*the param tank_center is the anchor point to rotate around(rotate clockwise).
+    `angle_deg == 0` means north direction*/
+	px_color color = color_palette[palette_color_id][0], color2 = color_palette[palette_color_id][1];
+	Rectangle rect;
+	Point rect_center, topline_center, gun_barrel_lefttop;
+    px_float width = 26, height = 20;
+    if (angle_deg < 0) {
+        angle_deg = 0;
+    }
+    if (angle_deg > 360) {
+        angle_deg = 360;
+    }
+    angle_deg += 270;
+    if (angle_deg > 360) {
+        angle_deg -= 360;
+    }
+	rect = PainterEngine_DrawSolidRect_v1(POINT2POS(tank_center), width, height, angle_deg, color2);
+	PainterEngine_DrawLine(POINT2POS(rect.lefttop), POINT2POS(rect.righttop), 3, color);
+	PainterEngine_DrawLine(POINT2POS(rect.leftbottom), POINT2POS(rect.rightbottom), 3, color);
+	rect_center = get_rectangle_center(&rect);
+    // printf("tank_center:(%f,%f), rect_center:(%f,%f)\n", tank_center.x, tank_center.y, 
+    //     rect_center.x, rect_center.y); //the same is good
+	PainterEngine_DrawSolidCircle(POINT2POS(rect_center), 9, color);
+	topline_center = get_line_center(&rect.lefttop, &rect.righttop);
+	gun_barrel_lefttop = get_line_k_center(&rect_center, &topline_center, 0.46);
+	PainterEngine_DrawSolidRect_v0(POINT2POS(gun_barrel_lefttop), 18, (int)round(get_length_of_two_points(&rect_center,&gun_barrel_lefttop)*2), 
+		angle_deg, color);
+}
+
+Point move_point(Point start, px_float direction, px_float distance) { // 计算从给定点沿着指定方向移动指定距离后的新坐标
+	if (direction < 0) {
+        direction = 0;
+    }
+    if (direction > 360) {
+        direction = 360;
+    }
+    direction = 360 - direction + 90;
+	if (direction > 360) {
+        direction -= 360;
+    }
+	printf("move_point direction: %f\n", direction);
+
+	// 将角度转换为弧度
+    px_float direction_rad = direction * M_PI / 180.0;
+
+    // 计算新坐标
+    Point end;
+    end.x = start.x + distance * cos(direction_rad);
+    end.y = start.y - distance * sin(direction_rad);
+
+    return end;
 }
