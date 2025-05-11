@@ -267,7 +267,7 @@ Point move_point(Point start, px_float direction, px_float distance) { // 计算
 	if (direction > 360) {
         direction -= 360;
     }
-	printf("move_point direction: %f\n", direction);
+	// printf("move_point direction: %f\n", direction);
 
 	// 将角度转换为弧度
     px_float direction_rad = direction * M_PI / 180.0;
