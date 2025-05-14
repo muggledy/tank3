@@ -1,144 +1,115 @@
-#include "PainterEngine.h"
-#include <sys/time.h>
-#include "tank.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <stdatomic.h>
 
-#define PX_OBJECT_TYPE_TANK 250503
+#include "event_queue.h"
+#include "game_state.h"
+#include "controller.h"
+#include "gui.h"
+#include "network.h"
 
-#define SET_FLAG(obj, field, flag) (obj)->field |= flag
-#define CLR_FLAG(obj, field, flag) (obj)->field &= (~flag)
-#define TST_FLAG(obj, field, flag) ((obj)->field & flag)
+// 程序状态
+static atomic_bool running = ATOMIC_VAR_INIT(true);
 
-typedef struct _PX_Object_Tank PX_Object_Tank;
-
-typedef struct {
-    PX_Object_Tank *tank; //所属坦克对象
-	px_short direction; //方向（360°，0为正北朝上）
-	px_byte speed; //子弹移动速度
-    px_byte is_alive; //是否存活有效
-} Bullet;
-
-typedef struct _PX_Object_Tank {
-    Point pos; //（坦克中心）位置(整数,因像素坐标只能是整数,仅用于UI显示)
-	Point accurate_pos; //精确位置(浮点数,用于所有运算逻辑)
-	px_short direction; //方向（360°，0为正北朝上）
-	px_byte speed; //坦克移动速度
-    px_byte color_id; //颜色
-    px_short hits; //生命值
-#define KEY_FLAG_W 0x00000001
-#define KEY_FLAG_A 0x00000002
-#define KEY_FLAG_S 0x00000004
-#define KEY_FLAG_D 0x00000008
-	px_uint32 key_flag;
-} PX_Object_Tank;
-
-px_color white_bg_color = {255,255,255,255};
-
-PX_OBJECT_RENDER_FUNCTION(PX_Object_TankRender) //坦克渲染
-{
-	PX_Object_Tank* tank = PX_ObjectGetDescByType(pObject, PX_OBJECT_TYPE_TANK);
-	px_float x, y, width, height;
-	px_surface* surface = PX_Object_PanelGetSurface(App.object_printer);
-
-	PX_SurfaceClearAll(surface, white_bg_color); //清空画布
-	PX_OBJECT_INHERIT_CODE(pObject, x, y, width, height);
-	draw_tank(tank->pos, tank->direction, tank->color_id);
+// 控制线程函数
+void* control_thread(void* arg) {
+    EventQueue* event_queue = (EventQueue*)arg;
+    
+    // 初始化libevent
+    init_event_loop(event_queue);
+    
+    // 启动网络（如果是联网模式）
+    start_network();
+    
+    // 事件循环将持续运行，直到调用stop_event_loop()
+    run_event_loop();
+    
+    // 清理资源
+    cleanup_network();
+    cleanup_event_loop();
+    
+    return NULL;
 }
 
-PX_OBJECT_FREE_FUNCTION(PX_Object_TankFree)
-{
-	// PX_Object_Tank* tank = PX_ObjectGetDescByType(pObject, PX_OBJECT_TYPE_TANK);
+// GUI线程函数
+void* gui_thread(void* arg) {
+    EventQueue* event_queue = (EventQueue*)arg;
+    GameState game_state;
+    
+    // 初始化GUI
+    init_gui();
+    
+    while(atomic_load(&running)) {
+        // 处理GUI事件（如用户输入）
+        handle_gui_events(event_queue);
+        
+        // 获取最新游戏状态
+        get_game_state(&game_state);
+        
+        // 渲染游戏画面
+        render_game_state(&game_state);
+        
+        // 检查游戏是否结束
+        if (game_state.game_over) {
+            atomic_store(&running, false);
+            stop_event_loop(); // 停止事件循环
+        }
+        
+        // 等待一小段时间
+        usleep(16000); // 约60FPS
+    }
+    
+    // 清理GUI资源
+    cleanup_gui();
+    
+    return NULL;
 }
 
-PX_OBJECT_EVENT_FUNCTION(PX_Object_TankOnKeydown)
-{
-	Point tmp_pos;
-	px_short new_dir = 0;
-	PX_Object_Tank* tank = PX_ObjectGetDescByType(pObject, PX_OBJECT_TYPE_TANK);
-	px_uint key = 0;
-
-	if (e.Event == PX_OBJECT_EVENT_KEYDOWN) {
-		key = PX_Object_Event_GetKeyDown(e);
-		if ((key == 'd') || TST_FLAG(tank, key_flag, KEY_FLAG_D)) {
-			SET_FLAG(tank, key_flag, KEY_FLAG_D);
-			tank->direction += 10;
-			tank->direction %= 360;
-			printf("keydown:D. direction:%u\n", tank->direction);
-		}
-		if ((key == 'a') || TST_FLAG(tank, key_flag, KEY_FLAG_A)) {
-			SET_FLAG(tank, key_flag, KEY_FLAG_A);
-			tank->direction += 360;
-			tank->direction -= 10;
-			tank->direction %= 360;
-			printf("keydown:A. direction:%u\n", tank->direction);
-		}
-		if ((key == 'w') || TST_FLAG(tank, key_flag, KEY_FLAG_W)) {
-			SET_FLAG(tank, key_flag, KEY_FLAG_W);
-			tmp_pos = tank->accurate_pos;
-			tank->accurate_pos = move_point(tank->accurate_pos, tank->direction, tank->speed);
-			tank->pos = round_point(tank->accurate_pos);
-			printf("keydown:W. forward from (%f, %f) to (%f, %f)\n", POINT2POS(tmp_pos), POINT2POS(tank->accurate_pos));
-		}
-		if ((key == 's') || TST_FLAG(tank, key_flag, KEY_FLAG_S)) {
-			SET_FLAG(tank, key_flag, KEY_FLAG_S);
-			new_dir = tank->direction + 180;
-			if (new_dir > 360) {
-				new_dir -= 360;
-			}
-			tmp_pos = tank->accurate_pos;
-			tank->accurate_pos = move_point(tank->accurate_pos, new_dir, tank->speed);
-			tank->pos = round_point(tank->accurate_pos);
-			printf("keydown:S. forward from (%f, %f) to (%f, %f)\n", POINT2POS(tmp_pos), POINT2POS(tank->accurate_pos));
-		}
-	}
-}
-
-PX_OBJECT_EVENT_FUNCTION(PX_Object_TankOnKeyup)
-{
-	PX_Object_Tank* tank = PX_ObjectGetDescByType(pObject, PX_OBJECT_TYPE_TANK);
-	px_uint key = 0;
-	printf("keyup...\n");
-	if (e.Event == PX_OBJECT_EVENT_KEYUP) {
-		key = PX_Object_Event_GetKeyDown(e);
-		if (key == 'd') {
-			CLR_FLAG(tank, key_flag, KEY_FLAG_D);
-			printf("keyup:D\n");
-		}
-		if (key == 'a') {
-			CLR_FLAG(tank, key_flag, KEY_FLAG_A);
-			printf("keyup:A\n");
-		}
-		if (key == 'w') {
-			CLR_FLAG(tank, key_flag, KEY_FLAG_W);
-			printf("keyup:W\n");
-		}
-		if (key == 's') {
-			CLR_FLAG(tank, key_flag, KEY_FLAG_S);
-			printf("keyup:S\n");
-		}
-	}
-}
-
-PX_Object *PX_Object_TankCreate(px_memorypool *mp,PX_Object *parent)
-{
-	PX_Object_Tank* ptank;
-	PX_Object* pObject = PX_ObjectCreateEx(mp, parent, 0, 0, 0, 0,0, 0, 
-        PX_OBJECT_TYPE_TANK, 0, PX_Object_TankRender, PX_Object_TankFree, 0, sizeof(PX_Object_Tank));
-	ptank = PX_ObjectGetDescByType(pObject, PX_OBJECT_TYPE_TANK);
-	ptank->key_flag = 0;
-	ptank->direction = 0;
-	ptank->speed = 2.5;
-	ptank->color_id = PALETTE_RED;
-    SetPosition(ptank->pos, 200,200);
-	SetPosition(ptank->accurate_pos, 200,200);
-	//PX_ObjectRegisterEvent(pObject, PX_OBJECT_EVENT_KEYDOWN, PX_Object_TankOnKeydown, PX_NULL);
-	PX_ObjectRegisterEvent(pObject, PX_OBJECT_EVENT_KEYUP, PX_Object_TankOnKeyup, PX_NULL);
-	return pObject;
-}
-
-int main()
-{
-	PainterEngine_Initialize(800,580);
-	PX_Object_TankCreate(mp, root);
-	//sleep(10);
-	return 0;
+int main() {
+    // 创建事件队列
+    EventQueue* event_queue = create_event_queue();
+    if (!event_queue) {
+        fprintf(stderr, "Failed to create event queue\n");
+        return 1;
+    }
+    
+    // 初始化控制器
+    init_controller(event_queue);
+    
+    // 创建线程
+    pthread_t control_tid, gui_tid;
+    if (pthread_create(&control_tid, NULL, control_thread, event_queue) != 0) {
+        fprintf(stderr, "Failed to create control thread\n");
+        destroy_event_queue(event_queue);
+        return 1;
+    }
+    
+    if (pthread_create(&gui_tid, NULL, gui_thread, event_queue) != 0) {
+        fprintf(stderr, "Failed to create GUI thread\n");
+        atomic_store(&running, false);
+        stop_event_loop();
+        pthread_join(control_tid, NULL);
+        destroy_event_queue(event_queue);
+        return 1;
+    }
+    
+    // 等待用户终止程序
+    printf("Press Enter to exit...\n");
+    getchar();
+    
+    // 停止程序
+    atomic_store(&running, false);
+    stop_event_loop();
+    
+    // 等待线程结束
+    pthread_join(control_tid, NULL);
+    pthread_join(gui_tid, NULL);
+    
+    // 清理资源
+    cleanup_controller();
+    destroy_event_queue(event_queue);
+    
+    return 0;
 }
