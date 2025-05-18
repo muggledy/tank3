@@ -1,21 +1,11 @@
-#include <SDL2/SDL.h>
 #include <math.h>
-#include "global.h"
+#include <time.h>
+#include <unistd.h>
+#include "tank.h"
 
 // SDL相关变量
 static SDL_Window*   tk_window = NULL;
 static SDL_Renderer* tk_renderer = NULL;
-
-// 颜色定义
-// 定义颜色枚举
-typedef enum {
-    TK_WHITE,
-    TK_BLACK,
-    TK_RED,
-    TK_GREEN,
-    TK_BLUE,
-    TK_YELLOW
-} TKColorID;
 
 // 颜色数组
 static SDL_Color tk_colors[] = {
@@ -28,54 +18,15 @@ static SDL_Color tk_colors[] = {
     // 其他颜色...
 };
 
-#define ID2COLOR(colorid)    tk_colors[colorid]
-#define ID2COLORPTR(colorid) &(tk_colors[colorid])
-
-#define COLOR2PARAM(color) \
-    (color).r,(color).g,(color).b,(color).a
-#define COLORPTR2PARAM(colorptr) \
-    (colorptr)->r,(colorptr)->g,(colorptr)->b,\
-    (colorptr)->a
-#define COLORPTR2PARAM2(colorptr,alpha) \
-    (colorptr)->r,(colorptr)->g,(colorptr)->b,\
-    (int)(((colorptr)->a)*(alpha))
-
-#define SET_COLOR(color, r, g, b, a) do { \
-    (color).r = (r); \
-    (color).g = (g); \
-    (color).b = (b); \
-    (color).a = (a); \
-} while(0)
-
-// 2D向量结构
-typedef struct __attribute__((packed)) {
-    tk_float32_t x;
-    tk_float32_t y;
-} Vector2;
-
-typedef Vector2 Point;
-
-typedef struct __attribute__((packed)) {
-	Point lefttop;
-	Point righttop;
-	Point rightbottom;
-	Point leftbottom;
-} Rectangle;
-
-// 坦克结构
-typedef struct {
-    tk_uint32_t id;
-    Point position;     //坦克中心点
-#define TANK_LENGTH 29
-#define TANK_WIDTH  23
-    tk_float32_t angle_deg; // 朝向角度
-    tk_float32_t speed; // 移动速度
-#define TANK_INIT_SPEED 2
-    tk_uint16_t health; // 生命值
-    tk_uint16_t score;  // 分数
-} Tank;
-
-#define POS(point) point.x,point.y
+// 预定义碎片形状顶点（以中心点为原点）
+static const Point particle_shape_vertices[][6] = {
+    // 三角形
+    {{-2, -4}, {2, -4}, {0, 4}, {0,0}},
+    // 四边形（菱形）
+    {{-3, 0}, {0, -3}, {3, 0}, {0, 3}, {0,0}},
+    // 五边形（简化版）
+    {{-3, -2}, {0, -4}, {3, -2}, {2, 3}, {-2, 3}, {0,0}}
+};
 
 // 初始化GUI
 void init_gui(void) {
@@ -204,7 +155,7 @@ static Point get_line_k_center(const Point *p1, const Point *p2, double k) { //(
 }
 
 // 渲染坦克
-static void render_tank(const Tank* tank, int is_player) {
+void render_tank(SDL_Renderer* renderer, const Tank* tank) {
     /* lefttop     righttop
          ↖︎         ↗
            ▛▀▀▀▀▀▜
@@ -213,14 +164,18 @@ static void render_tank(const Tank* tank, int is_player) {
           TANK_LENGTH
         C: tank->position
     */
+    if (tank->health <= 0) {
+        return;
+    }
     Rectangle rect;
     // 设置坦克颜色（玩家坦克为蓝色，AI坦克为红色）
-    SDL_Color *color = is_player ? ID2COLORPTR(TK_BLUE) : ID2COLORPTR(TK_RED);
+    SDL_Color *color = tank->basic_color;
     SDL_Color body_color = (SDL_Color){COLORPTR2PARAM2(color, 0.5)};
     Point topline_center;
     Point bottomline_center;
     Point rightline_center;
     Point gun_barrel_center;
+    Point health_bar_lefttop;
 
     tk_float32_t angle_deg = tank->angle_deg;
     if (angle_deg < 0) {
@@ -234,41 +189,28 @@ static void render_tank(const Tank* tank, int is_player) {
         angle_deg -= 360;
     }
     // 绘制坦克主体
-    rect = draw_rectangle(tk_renderer, &(tank->position), TANK_LENGTH, TANK_WIDTH, angle_deg, &body_color);
+    rect = draw_rectangle(renderer, &(tank->position), TANK_LENGTH, TANK_WIDTH, angle_deg, &body_color);
 
     // 绘制履带
     topline_center = get_line_center(&rect.lefttop, &rect.righttop);
     bottomline_center = get_line_center(&rect.leftbottom, &rect.rightbottom);
-    draw_rectangle(tk_renderer, &topline_center, TANK_LENGTH-4, 4, angle_deg, color);
-    draw_rectangle(tk_renderer, &bottomline_center, TANK_LENGTH-4, 4, angle_deg, color);
+    draw_rectangle(renderer, &topline_center, TANK_LENGTH-4, 4, angle_deg, color);
+    draw_rectangle(renderer, &bottomline_center, TANK_LENGTH-4, 4, angle_deg, color);
 
-    //绘制炮塔
-    draw_rectangle(tk_renderer, &(tank->position), 15, 15, angle_deg, color);
+    // 绘制炮塔
+    draw_rectangle(renderer, &(tank->position), 15, 15, angle_deg, color);
     rightline_center = get_line_center(&rect.righttop, &rect.rightbottom);
     gun_barrel_center = get_line_k_center(&(tank->position), &rightline_center, 0.8);
-    draw_rectangle(tk_renderer, &gun_barrel_center, 18, 9, angle_deg, color);
+    draw_rectangle(renderer, &gun_barrel_center, 18, 9, angle_deg, color);
 
-    // // 绘制坦克生命值
-    // SDL_SetRenderDrawColor(renderer, COLOR2PARAM(ID2COLOR(ID_GREEN)));
-    // SDL_Rect health_bar = {
-    //     (int)tank->position.x - 20,
-    //     (int)tank->position.y - 30,
-    //     tank->health * 40 / 100, 5
-    // };
-    // SDL_RenderFillRect(renderer, &health_bar);
-}
-
-// 渲染场景
-static void render_scene(const Tank* tank) {
-    // 清空屏幕
-    SDL_SetRenderDrawColor(tk_renderer, COLOR2PARAM(ID2COLOR(TK_WHITE)));
-    SDL_RenderClear(tk_renderer);
-
-    // 渲染坦克
-    render_tank(tank, 0);
-
-    // 显示渲染内容
-    SDL_RenderPresent(tk_renderer);
+    // 绘制坦克生命值
+    SDL_RenderDrawPoint(renderer, POS(tank->position));
+    health_bar_lefttop = (Point){tank->position.x-22, tank->position.y-30};
+    SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_GREEN), 0.65));
+    SDL_RenderDrawRect(renderer, &(SDL_Rect){POS(health_bar_lefttop), 43, 5});
+    SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_GREEN), 1));
+    SDL_RenderFillRect(renderer, &(SDL_Rect){POS(health_bar_lefttop), 
+        (int)(((tk_float32_t)(tank->health) / tank->max_health) * 43), 5});
 }
 
 // 计算从给定点沿着指定方向移动指定距离后的新坐标
@@ -294,11 +236,246 @@ Point move_point(Point start, tk_float32_t direction, tk_float32_t distance) {
     return end;
 }
 
+// 比较函数，用于qsort排序
+static int compare_floats(const void *a, const void *b) {
+    float fa = *(const float*)a;
+    float fb = *(const float*)b;
+    return (fa > fb) - (fa < fb);
+}
+
+// 填充多边形函数 - 使用扫描线算法实现（points：多边形顶点数组，count：顶点数量）
+int SDL_RenderFillPolygon(SDL_Renderer *renderer, const SDL_Point *points, int count) {
+    /*test:
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+    SDL_Point triangle[] = {
+        {100, 100},
+        {150, 50},
+        {150, 150},
+        {200, 200},
+        {50, 200}
+    };
+    SDL_RenderFillPolygon(renderer, triangle, 5);
+    */
+    float intersections[count]; // 存储扫描线与形状的交点的x坐标值
+    if (!renderer || !points || count < 3) return -1;
+    memset(intersections, 0, sizeof(float)*count);
+
+    // 找出多边形的最小和最大y坐标
+    int min_y = points[0].y;
+    int max_y = points[0].y;
+    for (int i = 1; i < count; i++) {
+        if (points[i].y < min_y) min_y = points[i].y;
+        if (points[i].y > max_y) max_y = points[i].y;
+    }
+
+    // 为每条扫描线计算与多边形边的交点
+    for (int y = min_y; y <= max_y; y++) {
+        // 动态分配交点数组（最大可能交点数为顶点数）
+        // float *intersections = (float*)malloc(count * sizeof(float));
+        if (!intersections) return -1;
+
+        int intersection_count = 0;
+        // 遍历每条边
+        for (int i = 0; i < count; i++) {
+            const SDL_Point *p1 = &points[i];
+            const SDL_Point *p2 = &points[(i + 1) % count];
+
+            // 如果边平行于扫描线则跳过
+            if (p1->y == p2->y) continue;
+            // 确保p1的y坐标小于p2的y坐标
+            if (p1->y > p2->y) {
+                const SDL_Point *temp = p1;
+                p1 = p2;
+                p2 = temp;
+            }
+            // 如果扫描线在边的范围外则跳过
+            if (y < p1->y || y > p2->y) continue;
+            // 计算交点的x坐标（使用线性插值）
+            float t = (float)(y - p1->y) / (p2->y - p1->y);
+            float x = p1->x + t * (p2->x - p1->x);
+
+            // 添加交点到数组
+            intersections[intersection_count++] = x;
+        }
+
+        // 对交点按x坐标排序
+        qsort(intersections, intersection_count, sizeof(float), compare_floats);
+
+        // 填充每对交点之间的线段
+        for (int i = 0; i < intersection_count - 1; i += 1) {
+            int x1 = (int)ceilf(intersections[i]);
+            int x2 = (int)floorf(intersections[i + 1]);
+
+            // 绘制水平线段
+            if (x1 <= x2) {
+                SDL_RenderDrawLine(renderer, x1, y, x2, y);
+            }
+        }
+        // free(intersections);
+    }
+    return 0;
+}
+
+#if 0
+// 爆炸粒子渲染（极简版）
+void render_explode_effect(SDL_Renderer* renderer, Tank *tank) {
+    tk_uint8_t i = 0;
+    ExplodeParticle* p = NULL;
+    tk_float32_t size = 0;
+    Rectangle rect;
+    SDL_Color color;
+
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    for (int i = 0; i < tank->explode_effect.active_count; i++) {
+        p = &(tank->explode_effect.particles[i]);
+
+        // 定义爆炸碎片形状（示例：绘制旋转的矩形）
+        size = 10 * p->scale; // 大小随缩放变化
+        calculate_rotated_rectangle(&p->position, size, size, p->angle, &rect);
+        // 设置颜色（红色渐变，带透明度）
+        color = (SDL_Color){255, 50, 50, p->alpha};
+        SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+        // 绘制四个顶点形成碎片
+        SDL_RenderDrawLine(renderer, 
+            rect.lefttop.x, rect.lefttop.y, 
+            rect.rightbottom.x, rect.rightbottom.y);
+        SDL_RenderDrawLine(renderer, 
+            rect.righttop.x, rect.righttop.y, 
+            rect.leftbottom.x, rect.leftbottom.y);
+    }
+}
+#else
+void render_explode_effect(SDL_Renderer* renderer, Tank *tank) {
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    
+    for (int i = 0; i < tank->explode_effect.active_count; i++) {
+        ExplodeParticle* p = &(tank->explode_effect.particles[i]);
+        const int vertex_count = p->shape_type == 0 ? 3 : (p->shape_type == 1 ? 4 : 5);
+        const Point* vertices = particle_shape_vertices[p->shape_type];
+
+        // 计算变换后的顶点坐标
+        Point transformed[5]; // 最多5个顶点
+        for (int v = 0; v < vertex_count; v++) {
+            // 缩放顶点
+            Point scaled = {vertices[v].x * p->scale, vertices[v].y * p->scale};
+            // 旋转顶点（绕中心点）
+            transformed[v] = rotate_point(&scaled, p->angle, &(Point){0, 0});
+            // 平移到粒子位置
+            transformed[v].x += p->position.x;
+            transformed[v].y += p->position.y;
+        }
+
+        // 设置颜色(沿用坦克自身颜色)
+        // Uint8 r, g, b, a;
+        // SDL_GetRenderDrawColor(renderer, &r, &g, &b, &a); // 获取当前绘制颜色
+        SDL_SetRenderDrawColor(renderer, tank->basic_color->r, tank->basic_color->g, tank->basic_color->b, p->alpha);
+
+        // 绘制多边形
+        SDL_Point sdl_points[5];
+        for (int v = 0; v < vertex_count; v++) {
+            sdl_points[v] = (SDL_Point){(int)transformed[v].x, (int)transformed[v].y};
+        }
+#if 1 // 颜色填充版
+        SDL_RenderFillPolygon(renderer, sdl_points, vertex_count);
+#else // 非填充版
+        for (int v = 0; v < vertex_count; v++) {
+            int next_v = (v + 1) % vertex_count;
+            SDL_RenderDrawLine(renderer, sdl_points[v].x, sdl_points[v].y, 
+                sdl_points[next_v].x, sdl_points[next_v].y);
+        }
+#endif
+    }
+}
+#endif
+
+// 触发爆炸（初始化爆炸粒子集合）
+void trigger_explode(Tank *tank) {
+    tk_uint8_t i = 0;
+    ExplodeParticle* p = NULL;
+
+    for (i = 0; i < MAX_PARTICLES; i++) {
+        if (tank->explode_effect.active_count >= MAX_PARTICLES) {
+            break; // 即使短期内重复trigger触发多次爆炸，只要上一个爆炸还没结束，就不会再次引起爆炸导致冲突：
+            // 前提是设置为p->life = PARTICLE_MAX_LIFE; 当然正常只应触发一次爆炸
+        }
+
+        p = &(tank->explode_effect.particles[tank->explode_effect.active_count]);
+        p->position = tank->position;
+
+        // 随机速度（范围：-3到+3）
+        p->velocity.x = (rand() % 600 - 300) / 100.0f;
+        p->velocity.y = (rand() % 600 - 300) / 100.0f;
+        // 随机旋转角度
+        p->angle = rand() % 360;
+        // 初始缩放和透明度
+        p->scale = (rand() % 50 + 50) / 100.0f; // 0.5~1.0
+        p->alpha = 255;
+        // p->life = PARTICLE_MAX_LIFE;
+        p->life = rand() % (PARTICLE_MAX_LIFE-25) + 25; // 生命周期随机（25~PARTICLE_MAX_LIFE帧）
+        p->shape_type = rand() % 3; // 随机形状
+
+        tank->explode_effect.active_count++;
+    }
+}
+
+// 更新爆炸粒子集合
+void update_explode_particles_state(Tank *tank) {
+    tk_uint8_t i = 0;
+    ExplodeParticle* p = NULL;
+
+    // 更新爆炸粒子
+    for (i = 0; i < tank->explode_effect.active_count; i++) {
+        p = &(tank->explode_effect.particles[i]);
+
+        // 移动粒子
+        p->position.x += p->velocity.x;
+        p->position.y += p->velocity.y;
+        // 衰减速度（模拟空气阻力）
+        p->velocity.x *= 0.95f;
+        p->velocity.y *= 0.95f;
+        // 衰减透明度和生命周期
+        p->scale += 0.03f; // 碎片逐渐变大
+        // p->alpha = (uint8_t)(255 * (p->life / (float)PARTICLE_MAX_LIFE));
+        p->alpha = (uint8_t)(255 * pow(p->life / (float)PARTICLE_MAX_LIFE, 2)); // 二次方衰减透明度
+        p->life--;
+
+        // 如果生命周期结束，标记为无效，并将粒子交换到数组末尾并减少计数
+        if (p->life <= 0) {
+            tank->explode_effect.active_count--;
+            tank->explode_effect.particles[i] = \
+                tank->explode_effect.particles[tank->explode_effect.active_count];
+            i--; // 避免跳过下一个元素
+        }
+    }
+}
+
+// 渲染场景
+static void render_gui_scene(Tank* tank) {
+    // 清空屏幕
+    SDL_SetRenderDrawColor(tk_renderer, COLOR2PARAM(ID2COLOR(TK_WHITE)));
+    SDL_RenderClear(tk_renderer);
+
+    // 渲染坦克
+    render_tank(tk_renderer, tank);
+
+    // 绘制爆炸效果
+    render_explode_effect(tk_renderer, tank);
+
+    // 显示渲染内容
+    SDL_RenderPresent(tk_renderer);
+}
+
 int main() {
     int quit = 0;
     SDL_Event e;
-    Tank tank = {1, {400,300}, 300, TANK_INIT_SPEED, 100, 80}; // 居中放置坦克
+    Tank tank = {1, {400,300}, 300, TANK_INIT_SPEED, 100, 100, 80};
+    tk_uint8_t is_player = 0;
+    tank.basic_color = is_player ? ID2COLORPTR(TK_BLUE) : ID2COLORPTR(TK_RED);
+    memset(&(tank.explode_effect), 0, sizeof(tank.explode_effect));
     tk_float32_t new_dir = 0;
+
+    // 结合时间和进程ID作为随机种子（用于爆炸粒子）
+    srand((unsigned int)time(NULL) ^ (unsigned int)getpid());
 
     init_gui();
     // 主循环
@@ -308,9 +485,12 @@ int main() {
             // 用户请求退出
             if (e.type == SDL_QUIT) {
                 quit = 1;
-            }
-            // 处理键盘事件
-            else if (e.type == SDL_KEYDOWN) {
+            } else if (e.type == SDL_KEYDOWN) { // 处理键盘事件
+                if (tank.health > 0) {
+                    tank.health--;
+                } else {
+                    break;
+                }
                 switch (e.key.keysym.sym) {
                     case SDLK_ESCAPE:
                         quit = 1;
@@ -339,11 +519,18 @@ int main() {
                         }
                         break;
                 }
+                if (tank.health <= 0) {
+                    trigger_explode(&tank);
+                    // tank.health = 20;
+                }
             }
         }
 
+        // 更新爆炸粒子
+        update_explode_particles_state(&tank);
+
         // 渲染场景
-        render_scene(&tank);
+        render_gui_scene(&tank);
 
         // 控制帧率
         SDL_Delay(30); // 约60FPS
