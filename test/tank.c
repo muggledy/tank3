@@ -2,10 +2,14 @@
 #include <time.h>
 #include <unistd.h>
 #include "tank.h"
+#include <bsd/string.h>
+#include <stdlib.h>
+#include "./utils/idpool.h"
 
 // SDL相关变量
 static SDL_Window*   tk_window = NULL;
 static SDL_Renderer* tk_renderer = NULL;
+IDPool *tk_idpool = NULL;
 
 // 颜色数组
 static SDL_Color tk_colors[] = {
@@ -29,11 +33,11 @@ static const Point particle_shape_vertices[][6] = {
 };
 
 // 初始化GUI
-void init_gui(void) {
+int init_gui(void) {
     // 初始化SDL
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
-        return;
+        return -1;
     }
 
     // 创建窗口
@@ -41,18 +45,20 @@ void init_gui(void) {
                              800, 600, SDL_WINDOW_SHOWN);
     if (tk_window == NULL) {
         printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
-        return;
+        return -2;
     }
 
     // 创建渲染器
     tk_renderer = SDL_CreateRenderer(tk_window, -1, SDL_RENDERER_ACCELERATED);
     if (tk_renderer == NULL) {
         printf("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
-        return;
+        return -3;
     }
 
     // 设置渲染器绘制颜色为白色
     SDL_SetRenderDrawColor(tk_renderer, 255, 255, 255, 255);
+
+    return 0;
 }
 
 // 清理GUI资源
@@ -154,8 +160,84 @@ static Point get_line_k_center(const Point *p1, const Point *p2, double k) { //(
     return k_center;
 }
 
+// 绘制箭头头部（简化版）
+static void draw_arrow_head(SDL_Renderer* renderer, Point end, float angle) {
+    /*
+        \ 夹角θ(144°)
+     ----→(end) →:angle所代表的主轴方向(East: 0°, North: 270°)
+        /
+    */
+    float arrow_size = 5.0f;
+
+    float arrow_angle1 = angle + M_PI * 0.8f;  // 箭头一侧角度 angle + M_PI*0.8f ≈ angle + θ(144°)
+    float arrow_angle2 = angle - M_PI * 0.8f;  // 箭头另一侧角度
+
+    Point arrow_point1 = {
+        .x = end.x + arrow_size * cosf(arrow_angle1),
+        .y = end.y + arrow_size * sinf(arrow_angle1) //横轴i单位向量[1,0]逆时针旋转θ后坐标为[cos(θ),sin(θ)]
+    };
+    Point arrow_point2 = {
+        .x = end.x + arrow_size * cosf(arrow_angle2),
+        .y = end.y + arrow_size * sinf(arrow_angle2)
+    };
+
+    // 绘制箭头线条
+    SDL_RenderDrawLine(renderer, end.x, end.y, arrow_point1.x, arrow_point1.y);
+    SDL_RenderDrawLine(renderer, end.x, end.y, arrow_point2.x, arrow_point2.y);
+}
+
+// 绘制坦克坐标系（北轴和右轴）
+void draw_tank_coordinates(SDL_Renderer* renderer, const Tank* tank) {
+    if (!renderer || !tank) return;
+
+    // 设置绘制颜色
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // 白色
+    // 坐标系原点（坦克中心）
+    Point origin = tank->position;
+
+    float north_angle_rad = 270 * M_PI / 180.0f;
+    Point north_end = {
+        .x = origin.x,  // 北轴长度23像素
+        .y = origin.y - 23
+    };
+    // 计算右轴方向（垂直于北轴，顺时针旋转90度）
+    float right_angle_rad = 0 * M_PI / 180.0f;
+    Point right_end = {
+        .x = origin.x + 20,  // 右轴长度20像素
+        .y = origin.y
+    };
+
+    // 绘制北轴
+    SDL_SetRenderDrawColor(renderer, 75, 193, 169, 255);
+    SDL_RenderDrawLine(renderer, origin.x, origin.y, north_end.x, north_end.y);
+    draw_arrow_head(renderer, north_end, north_angle_rad);  // 北轴箭头
+
+    // 绘制右轴
+    SDL_SetRenderDrawColor(renderer, 75, 193, 169, 255);
+    SDL_RenderDrawLine(renderer, origin.x, origin.y, right_end.x, right_end.y);
+    draw_arrow_head(renderer, right_end, right_angle_rad);  // 右轴箭头
+
+    // 坦克前进方向轴（不带箭头）
+#define SCOPE_LEN 200 // 便于瞄准敌人
+    float tank_ang = (tank->angle_deg + 270);
+    if (tank_ang > 360) {
+        tank_ang -= 360;
+    }
+    float tank_angle_rad = tank_ang * M_PI / 180.0f;
+    Point tank_angle_end = {
+        .x = origin.x + SCOPE_LEN * cosf(tank_angle_rad),  // 长度SCOPE_LEN像素
+        .y = origin.y + SCOPE_LEN * sinf(tank_angle_rad)
+    };
+    SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_BLACK), 0.3));
+    SDL_RenderDrawLine(renderer, origin.x, origin.y, tank_angle_end.x, tank_angle_end.y);
+}
+
+extern void trigger_explode(Tank *tank);
+extern void render_explode_effect(SDL_Renderer* renderer, Tank *tank);
+extern void update_explode_particles_state(Tank *tank);
+
 // 渲染坦克
-void render_tank(SDL_Renderer* renderer, const Tank* tank) {
+void render_tank(SDL_Renderer* renderer, Tank* tank) {
     /* lefttop     righttop
          ↖︎         ↗
            ▛▀▀▀▀▀▜
@@ -164,7 +246,26 @@ void render_tank(SDL_Renderer* renderer, const Tank* tank) {
           TANK_LENGTH
         C: tank->position
     */
-    if (tank->health <= 0) {
+    if (!renderer || !tank) {
+        return;
+    }
+    if (TST_FLAG(tank, flags, TANK_DEAD)) {
+        return;
+    }
+    if ((tank->health <= 0) || TST_FLAG(tank, flags, TANK_DYING)) {
+        if (TST_FLAG(tank, flags, TANK_ALIVE)) {
+            CLR_FLAG(tank, flags, TANK_ALIVE);
+            trigger_explode(tank);
+            SET_FLAG(tank, flags, TANK_DYING);
+        }
+        // 绘制爆炸效果
+        render_explode_effect(renderer, tank);
+        // 更新爆炸粒子
+        update_explode_particles_state(tank);
+        if (tank->explode_effect.active_count <= 0) {
+            CLR_FLAG(tank, flags, TANK_DYING);
+            SET_FLAG(tank, flags, TANK_DEAD);
+        }
         return;
     }
     Rectangle rect;
@@ -176,6 +277,7 @@ void render_tank(SDL_Renderer* renderer, const Tank* tank) {
     Point rightline_center;
     Point gun_barrel_center;
     Point health_bar_lefttop;
+    tk_float32_t life_percentage = 0;
 
     tk_float32_t angle_deg = tank->angle_deg;
     if (angle_deg < 0) {
@@ -208,9 +310,18 @@ void render_tank(SDL_Renderer* renderer, const Tank* tank) {
     health_bar_lefttop = (Point){tank->position.x-22, tank->position.y-30};
     SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_GREEN), 0.65));
     SDL_RenderDrawRect(renderer, &(SDL_Rect){POS(health_bar_lefttop), 43, 5});
-    SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_GREEN), 1));
+    life_percentage = ((tk_float32_t)(tank->health) / tank->max_health);
+    if (life_percentage >= 0.3) {
+        SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_GREEN), 1));
+    } else {
+        SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_RED), 1));
+    }
     SDL_RenderFillRect(renderer, &(SDL_Rect){POS(health_bar_lefttop), 
-        (int)(((tk_float32_t)(tank->health) / tank->max_health) * 43), 5});
+        (int)(life_percentage * 43), 5});
+
+    if (TANK_ROLE_SELF == tank->role) {
+        draw_tank_coordinates(renderer, tank);
+    }
 }
 
 // 计算从给定点沿着指定方向移动指定距离后的新坐标
@@ -458,26 +569,77 @@ static void render_gui_scene(Tank* tank) {
     // 渲染坦克
     render_tank(tk_renderer, tank);
 
-    // 绘制爆炸效果
-    render_explode_effect(tk_renderer, tank);
-
     // 显示渲染内容
     SDL_RenderPresent(tk_renderer);
 }
 
-int main() {
+Tank* init_tank_obj(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role) {
+    Tank *tank = NULL;
+
+    tank = malloc(sizeof(Tank));
+    if (!tank) {
+        goto error;
+    }
+    memset(tank, 0, sizeof(Tank));
+
+    strlcpy(tank->name, name, sizeof(tank->name));
+    tank->id = id_pool_allocate(tk_idpool);
+    if (!tank->id) {
+        printf("Error: id_pool_allocate failed\n");
+        goto error;
+    }
+    tank->position = pos;
+    tank->angle_deg = angle_deg;
+    tank->role = role;
+    SET_FLAG(tank, flags, TANK_ALIVE);
+    tank->basic_color = (TANK_ROLE_SELF == tank->role) ? ID2COLORPTR(TK_BLUE) : ID2COLORPTR(TK_RED);
+    tank->health = tank->max_health = (TANK_ROLE_SELF == tank->role) ? 50 : 250;
+    tank->speed = TANK_INIT_SPEED;
+
+    printf("create a tank(name:%s, total size:%luB, ExplodeEffect's size: %luB) success\n", 
+        tank->name, sizeof(Tank), sizeof(tank->explode_effect));
+    return tank;
+error:
+    printf("Error: create tank %s failed\n", name);
+    if (tank) {
+        free(tank);
+    }
+    return NULL;
+}
+
+void delete_tank(Tank **tank) {
+    if (!tank || !(*tank)) {
+        if (!tank) {
+            *tank = NULL;
+        }
+        return;
+    }
+    printf("tank %s(flags:%u) is deleted\n", (*tank)->name, (*tank)->flags);
+    free(*tank);
+    *tank = NULL;
+}
+
+int main() { //gcc tank.c -o tank `sdl2-config --cflags --libs` -lm -g -lbsd
     int quit = 0;
     SDL_Event e;
-    Tank tank = {1, {400,300}, 300, TANK_INIT_SPEED, 100, 100, 80};
-    tk_uint8_t is_player = 0;
-    tank.basic_color = is_player ? ID2COLORPTR(TK_BLUE) : ID2COLORPTR(TK_RED);
-    memset(&(tank.explode_effect), 0, sizeof(tank.explode_effect));
     tk_float32_t new_dir = 0;
+    Tank *tank = NULL;
+    int ret = -1;
 
     // 结合时间和进程ID作为随机种子（用于爆炸粒子）
     srand((unsigned int)time(NULL) ^ (unsigned int)getpid());
 
-    init_gui();
+    if (init_gui() != 0){
+        goto out;
+    }
+    tk_idpool = id_pool_create(ID_POOL_SIZE);
+    if (!tk_idpool) {
+        goto out;
+    }
+    tank = init_tank_obj("muggledy", (Point){400,300}, 300, TANK_ROLE_SELF);
+    if (!tank) {
+        goto out;
+    }
     // 主循环
     while (!quit) {
         // 处理事件
@@ -486,8 +648,8 @@ int main() {
             if (e.type == SDL_QUIT) {
                 quit = 1;
             } else if (e.type == SDL_KEYDOWN) { // 处理键盘事件
-                if (tank.health > 0) {
-                    tank.health--;
+                if (tank->health > 0) {
+                    tank->health--;
                 } else {
                     break;
                 }
@@ -496,46 +658,45 @@ int main() {
                         quit = 1;
                         break;
                     case SDLK_w:
-                        tank.position = move_point(tank.position, tank.angle_deg, tank.speed);
+                        tank->position = move_point(tank->position, tank->angle_deg, tank->speed);
                         break;
                     case SDLK_s:
-                        new_dir = tank.angle_deg + 180;
+                        new_dir = tank->angle_deg + 180;
                         if (new_dir > 360) {
                             new_dir -= 360;
                         }
-                        tank.position = move_point(tank.position, new_dir, tank.speed);
+                        tank->position = move_point(tank->position, new_dir, tank->speed);
                         break;
                     case SDLK_a:
-                        tank.angle_deg += 360;
-                        tank.angle_deg -= 10;
-                        if (tank.angle_deg >= 360) {
-                            tank.angle_deg -= 360;
+                        tank->angle_deg += 360;
+                        tank->angle_deg -= 10;
+                        if (tank->angle_deg >= 360) {
+                            tank->angle_deg -= 360;
                         }
                         break;
                     case SDLK_d:
-                        tank.angle_deg += 10;
-			            if (tank.angle_deg >= 360) {
-                            tank.angle_deg -= 360;
+                        tank->angle_deg += 10;
+			            if (tank->angle_deg >= 360) {
+                            tank->angle_deg -= 360;
                         }
                         break;
-                }
-                if (tank.health <= 0) {
-                    trigger_explode(&tank);
-                    // tank.health = 20;
                 }
             }
         }
 
-        // 更新爆炸粒子
-        update_explode_particles_state(&tank);
-
         // 渲染场景
-        render_gui_scene(&tank);
-
+        render_gui_scene(tank);
         // 控制帧率
         SDL_Delay(30); // 约60FPS
     }
+    ret = 0;
 
+out:
     cleanup_gui();
-    return 0;
+    delete_tank(&tank);
+    if (tk_idpool) {
+        id_pool_destroy(tk_idpool);
+        tk_idpool = NULL;
+    }
+    return ret;
 }

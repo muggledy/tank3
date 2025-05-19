@@ -71,6 +71,8 @@ typedef struct {
 // 坦克结构
 typedef struct {
     tk_uint32_t id;
+#define TANK_NAME_MAXLEN 32
+    tk_uint8_t name[TANK_NAME_MAXLEN];
     Point position;     //坦克中心点
 #define TANK_LENGTH 29
 #define TANK_WIDTH  23
@@ -80,8 +82,15 @@ typedef struct {
     tk_uint16_t health; // 生命值
     tk_uint16_t max_health;
     tk_uint16_t score;  // 分数
-    ExplodeEffect explode_effect; //爆炸效果
+#define TANK_ALIVE 0x00000001
+#define TANK_DYING 0x00000002
+#define TANK_DEAD  0x00000004
+    tk_uint32_t flags;
     SDL_Color *basic_color; //基本颜色
+    ExplodeEffect explode_effect; //爆炸效果
+#define TANK_ROLE_SELF  0
+#define TANK_ROLE_ENEMY 1
+    tk_uint8_t role;
 } Tank;
 
 #define POS(point) point.x,point.y
