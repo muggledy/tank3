@@ -1,4 +1,0 @@
-[submodule "PainterEngine"]
-	path = PainterEngine
-	url = https://github.com/matrixcascade/PainterEngine.git
-	ignore = all

@@ -4,7 +4,7 @@
 #include "tank.h"
 #include <bsd/string.h>
 #include <stdlib.h>
-#include "./utils/idpool.h"
+#include "idpool.h"
 
 // SDL相关变量
 static SDL_Window*   tk_window = NULL;
@@ -41,7 +41,7 @@ int init_gui(void) {
     }
 
     // 创建窗口
-    tk_window = SDL_CreateWindow("坦克游戏", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
+    tk_window = SDL_CreateWindow("坦克-3", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
                              800, 600, SDL_WINDOW_SHOWN);
     if (tk_window == NULL) {
         printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
@@ -573,7 +573,7 @@ static void render_gui_scene(Tank* tank) {
     SDL_RenderPresent(tk_renderer);
 }
 
-Tank* init_tank_obj(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role) {
+Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role) {
     Tank *tank = NULL;
 
     tank = malloc(sizeof(Tank));
@@ -596,8 +596,8 @@ Tank* init_tank_obj(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint
     tank->health = tank->max_health = (TANK_ROLE_SELF == tank->role) ? 50 : 250;
     tank->speed = TANK_INIT_SPEED;
 
-    printf("create a tank(name:%s, total size:%luB, ExplodeEffect's size: %luB) success\n", 
-        tank->name, sizeof(Tank), sizeof(tank->explode_effect));
+    printf("create a tank(name:%s, id:%lu, total size:%luB, ExplodeEffect's size: %luB) success\n", 
+        tank->name, tank->id, sizeof(Tank), sizeof(tank->explode_effect));
     return tank;
 error:
     printf("Error: create tank %s failed\n", name);
@@ -614,11 +614,12 @@ void delete_tank(Tank **tank) {
         }
         return;
     }
-    printf("tank %s(flags:%u) is deleted\n", (*tank)->name, (*tank)->flags);
+    printf("tank(id:%lu) %s(flags:%lu) is deleted\n", (*tank)->id, (*tank)->name, (*tank)->flags);
     free(*tank);
     *tank = NULL;
 }
 
+#if 1
 int main() { //gcc tank.c -o tank `sdl2-config --cflags --libs` -lm -g -lbsd
     int quit = 0;
     SDL_Event e;
@@ -636,7 +637,7 @@ int main() { //gcc tank.c -o tank `sdl2-config --cflags --libs` -lm -g -lbsd
     if (!tk_idpool) {
         goto out;
     }
-    tank = init_tank_obj("muggledy", (Point){400,300}, 300, TANK_ROLE_SELF);
+    tank = create_tank("muggledy", (Point){400,300}, 300, TANK_ROLE_SELF);
     if (!tank) {
         goto out;
     }
@@ -692,11 +693,12 @@ int main() { //gcc tank.c -o tank `sdl2-config --cflags --libs` -lm -g -lbsd
     ret = 0;
 
 out:
-    cleanup_gui();
     delete_tank(&tank);
     if (tk_idpool) {
         id_pool_destroy(tk_idpool);
         tk_idpool = NULL;
     }
+    cleanup_gui();
     return ret;
 }
+#endif

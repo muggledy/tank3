@@ -95,4 +95,8 @@ typedef struct {
 
 #define POS(point) point.x,point.y
 
+extern Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role);
+extern void delete_tank(Tank **tank);
+extern void render_tank(SDL_Renderer* renderer, Tank* tank);
+
 #endif

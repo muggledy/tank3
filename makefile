@@ -22,7 +22,7 @@ project_build_o := $(patsubst %.c,%.o,$(project_build))
 
 $(info Filtered project build(.o): $(project_build_o))
 
-SDL_FLAGS = $(shell pkg-config --cflags --libs sdl2)
+SDL_FLAGS = $(shell pkg-config --cflags --libs sdl2 SDL2_ttf)
 
 # 指定头文件搜索路径列表(针对的是project_path变量目录下的.c文件)
 #header_paths := ./src/view ./src/event
@@ -36,7 +36,7 @@ all:$(project_build_o)
 	$(SDL_FLAGS) -o $(target) -L. $(LDFLAGS)
 
 $(project_path)/%.o:$(project_path)/%.c
-	gcc -c $^ -o $@ $(CFLAGS)
+	gcc -c $^ -o $@ $(CFLAGS) -g
 
 clean:
 	@echo "Cleaning..."

@@ -18,5 +18,6 @@ extern void id_pool_destroy(IDPool *pool);
 extern int id_pool_allocate(IDPool *pool);
 extern void id_pool_release(IDPool *pool, int id);
 extern void id_pool_print(IDPool *pool);
+#define print_id_pool id_pool_print
 
 #endif
