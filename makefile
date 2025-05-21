@@ -33,7 +33,8 @@ $(info CFLAGS: $(CFLAGS))
 
 all:$(project_build_o)
 	gcc $(project_build_o) \
-	$(SDL_FLAGS) -o $(target) -L. $(LDFLAGS)
+	$(SDL_FLAGS) \
+	-o $(target) -L. $(LDFLAGS)
 
 $(project_path)/%.o:$(project_path)/%.c
 	gcc -c $^ -o $@ $(CFLAGS) -g

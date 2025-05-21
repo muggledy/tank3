@@ -15,6 +15,7 @@ typedef enum {
     TK_YELLOW
 } TKColorID;
 
+extern SDL_Color tk_colors[];
 #define ID2COLOR(colorid)    tk_colors[colorid]
 #define ID2COLORPTR(colorid) &(tk_colors[colorid])
 
@@ -95,8 +96,17 @@ typedef struct {
 
 #define POS(point) point.x,point.y
 
+typedef struct {
+#define TK_KEY_W_ACTIVE 0x00000001
+#define TK_KEY_A_ACTIVE 0x00000002
+#define TK_KEY_S_ACTIVE 0x00000004
+#define TK_KEY_D_ACTIVE 0x00000008
+    tk_uint32_t mask;
+} KeyValue;
+
 extern Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role);
 extern void delete_tank(Tank **tank);
 extern void render_tank(SDL_Renderer* renderer, Tank* tank);
+#define draw_tank render_tank
 
 #endif

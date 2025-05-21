@@ -11,6 +11,8 @@
 #define MAX_CACHE_ITEMS 100
 TextCacheItem text_cache[MAX_CACHE_ITEMS];
 int cache_count = 0;
+unsigned int total_not_hit_text_cache_num = 0;
+unsigned int total_not_hit_font_cache_num = 0;
 
 // 初始化SDL和TTF
 int init(SDL_Window** window, SDL_Renderer** renderer) {
@@ -47,6 +49,20 @@ int init(SDL_Window** window, SDL_Renderer** renderer) {
     return 1;
 }
 
+int init_ttf() {
+    if (TTF_Init() == -1) {
+        printf("SDL_ttf初始化失败: %s\n", TTF_GetError());
+        return -1;
+    }
+    return 0;
+}
+
+void cleanup_ttf() {
+    clear_cached_text();
+    clear_cached_font();
+    TTF_Quit();
+}
+
 // 加载字体
 TTF_Font* load_font(const char* font_path, int size) {
     TTF_Font* font = TTF_OpenFont(font_path, size);
@@ -57,7 +73,7 @@ TTF_Font* load_font(const char* font_path, int size) {
 }
 
 // 查找缓存的文本纹理
-SDL_Texture* find_cached_texture(const char* text, SDL_Color color, int font_size) {
+static SDL_Texture* find_cached_texture(const char* text, SDL_Color color, int font_size) {
     for (int i = 0; i < cache_count; i++) {
         if (strcmp(text_cache[i].text, text) == 0 &&
             text_cache[i].color.r == color.r &&
@@ -69,11 +85,12 @@ SDL_Texture* find_cached_texture(const char* text, SDL_Color color, int font_siz
             return text_cache[i].texture;
         }
     }
+    total_not_hit_text_cache_num++;
     return NULL;
 }
 
 // 添加文本到缓存
-void add_text_to_cache(const char* text, SDL_Color color, int font_size, SDL_Texture* texture) {
+static void add_text_to_cache(const char* text, SDL_Color color, int font_size, SDL_Texture* texture) {
     int i = 0;
     unsigned int min_hits = 0;
     int min_hits_index = 0;
@@ -111,6 +128,7 @@ void print_text_cache() {
     for (i = 0; i < cache_count; i++) {
         printf("[%d] %s. hits:%u\n", i, text_cache[i].text, text_cache[i].hits);
     }
+    printf("not hit text num: %u, not hit font num: %u\n", total_not_hit_text_cache_num, total_not_hit_font_cache_num);
 }
 
 void clear_text_cache() {
@@ -197,7 +215,7 @@ void cleanup(SDL_Window* window, SDL_Renderer* renderer) {
 #define MAX_FONTS 5
 FontCacheItem font_cache[MAX_FONTS] = {0};
 
-// 获取缓存的字体（或加载新字体），注意字体路径不能发生变化
+// 获取缓存的字体（或加载新字体），注意字体路径不能发生变化！即不支持多种字体缓存，只支持单字体不同size的缓存
 TTF_Font* get_cached_font(const char* font_path, int size) {
     // 检查缓存
     for (int i = 0; i < MAX_FONTS; i++) {
@@ -206,6 +224,7 @@ TTF_Font* get_cached_font(const char* font_path, int size) {
         }
     }
 
+    total_not_hit_font_cache_num++;
     // 缓存中没有，加载新字体
     TTF_Font* new_font = TTF_OpenFont(font_path, size);
     if (new_font == NULL) {
@@ -233,6 +252,7 @@ void clear_cached_font() {
     for (int i = 0; i < MAX_FONTS; i++) {
         if (font_cache[i].font != NULL) {
             TTF_CloseFont(font_cache[i].font);
+            font_cache[i].font = NULL;
         }
     }
 }
