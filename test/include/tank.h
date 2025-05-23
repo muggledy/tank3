@@ -3,6 +3,7 @@
 
 #include <SDL2/SDL.h>
 #include "global.h"
+#include <SDL2/SDL_mixer.h>
 
 // 颜色定义
 // 定义颜色枚举
@@ -95,6 +96,7 @@ typedef struct {
 } Tank;
 
 #define POS(point) point.x,point.y
+#define DEFAULT_FONT_PATH "./assets/Microsoft_JhengHei.ttf"
 
 typedef struct {
 #define TK_KEY_W_ACTIVE 0x00000001
@@ -103,6 +105,18 @@ typedef struct {
 #define TK_KEY_D_ACTIVE 0x00000008
     tk_uint32_t mask;
 } KeyValue;
+
+typedef struct {
+    Mix_Chunk* sound;
+    int channel;
+} MusicEntry;
+
+typedef struct {
+#define DEFAULT_TANK_MOVE_MUSIC_PATH "./assets/tank_move.wav"
+    MusicEntry move;
+#define DEFAULT_TANK_EXPLODE_MUSIC_PATH "./assets/tank_explode.wav"
+    MusicEntry explode;
+} TankMusic;
 
 extern Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role);
 extern void delete_tank(Tank **tank);

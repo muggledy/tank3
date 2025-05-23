@@ -8,14 +8,13 @@
 #include "sdl_text.h"
 #include "tools.h"
 
-#define DEFAULT_FONT_PATH "./assets/Microsoft_JhengHei.ttf"
-
 // SDL相关变量
 SDL_Window*   tk_window = NULL;
 SDL_Renderer* tk_renderer = NULL;
 IDPool* tk_idpool = NULL;
 TTF_Font* tank_font8 = NULL;
 KeyValue tk_key_value;
+TankMusic tk_music;
 
 // 颜色数组
 SDL_Color tk_colors[] = {
@@ -41,7 +40,7 @@ static const Point particle_shape_vertices[][6] = {
 // 初始化GUI
 int init_gui(void) {
     // 初始化SDL
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
         return -1;
     }
@@ -91,6 +90,86 @@ void cleanup_gui(void) {
 
     // 退出SDL子系统
     SDL_Quit();
+}
+
+int load_music(MusicEntry *music, char *file_path) {
+    music->channel = -1;
+    music->sound = Mix_LoadWAV(file_path);
+    if(music->sound == NULL) {
+        printf("无法加载声音(%s): %s\n", file_path, Mix_GetError());
+        return -1;
+    }
+    return 0;
+}
+
+int init_music() { // call after init_gui()
+    // 初始化SDL_mixer
+    if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+        printf("SDL_mixer初始化失败: %s\n", Mix_GetError());
+        return -1;
+    }
+    memset(&tk_music, 0, sizeof(tk_music));
+
+    // 加载坦克声音
+    if (load_music(&(tk_music.move), DEFAULT_TANK_MOVE_MUSIC_PATH) != 0) {
+        return -1;
+    }
+    if (load_music(&(tk_music.explode), DEFAULT_TANK_EXPLODE_MUSIC_PATH) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+extern int is_music_playing(MusicEntry *music);
+extern void pause_music(MusicEntry *music);
+
+void pause_and_free_music(MusicEntry *music) {
+    if (!music->sound) {
+        music->channel = -1;
+        return;
+    }
+    if (is_music_playing(music)) {
+        pause_music(music);
+    }
+    Mix_FreeChunk(music->sound);
+    music->sound = NULL;
+    music->channel = -1;
+}
+
+void cleanup_music() { // call before cleanup_gui()
+    // 释放声音资源
+    pause_and_free_music(&(tk_music.move));
+    pause_and_free_music(&(tk_music.explode));
+
+    // 关闭SDL_mixer
+    Mix_Quit();
+}
+
+int is_music_playing(MusicEntry *music) {
+    if(music->channel != -1) {
+        return 1;
+    }
+    return 0;
+}
+
+int play_music(MusicEntry *music, int only_once) {
+    if(music->channel != -1) { // is playing
+        return 0;
+    }
+    music->channel = Mix_PlayChannel(-1, music->sound, only_once ? 0 : -1);
+    if(music->channel == -1) {
+        printf("无法播放声音: %s\n", Mix_GetError());
+        return -1;
+    }
+    return 0;
+}
+
+void pause_music(MusicEntry *music) {
+    if(music->channel != -1) {
+        Mix_HaltChannel(music->channel);
+        music->channel = -1;
+    }
 }
 
 void cleanup_idpool() {
@@ -257,7 +336,8 @@ static void draw_tank_coordinates(SDL_Renderer* renderer, const Tank* tank) {
     if (!tank_font8) {
         tank_font8 = load_cached_font(DEFAULT_FONT_PATH, 8);
     }
-    SDL_Texture* text1 = render_cached_text(renderer, tank_font8, uint_to_str(tank->angle_deg), ID2COLOR(TK_BLACK));
+    SDL_Texture* text1 = render_cached_text(renderer, tank_font8, uint_to_str(tank->angle_deg), ID2COLOR(TK_BLACK)); // TODO: 缓存只有100，
+    // 而旋转角度有360，因此缓存经常失效，而且当前缓存是基于数组实现，性能较差，应该改造为基于哈希表
     draw_text(renderer, text1, POS(text_pos));
 #endif
 }
@@ -515,10 +595,11 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
         return;
     }
     if ((tank->health <= 0) || TST_FLAG(tank, flags, TANK_DYING)) {
-        if (TST_FLAG(tank, flags, TANK_ALIVE)) {
+        if (TST_FLAG(tank, flags, TANK_ALIVE)) { // only enter once
             CLR_FLAG(tank, flags, TANK_ALIVE);
             trigger_explode(tank);
             SET_FLAG(tank, flags, TANK_DYING);
+            play_music(&(tk_music.explode), 1);
         }
         // 绘制爆炸效果
         render_explode_effect(renderer, tank);
@@ -582,7 +663,7 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
         (int)(life_percentage * 43), 5});
 
     // 绘制坦克名称
-    tank_font8 = load_cached_font(DEFAULT_FONT_PATH, 8);
+    tank_font8 = load_cached_font(DEFAULT_FONT_PATH, 8); // TODO: 改造为哈希表实现
     SDL_Texture* text1 = render_cached_text(renderer, tank_font8, tank->name, ID2COLOR(TK_BLACK));
     draw_text(renderer, text1, tank->position.x-22, tank->position.y-43);
 
@@ -686,19 +767,50 @@ void handle_key(Tank *tank) {
         }
         tank->position = move_point(tank->position, new_dir, tank->speed);
     }
+#define PER_TICK_ANGLE_DEG_CHANGE 5
     if (TST_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE)) {
         tank->angle_deg += 360;
-        tank->angle_deg -= 10;
+        tank->angle_deg -= PER_TICK_ANGLE_DEG_CHANGE;
         if (tank->angle_deg >= 360) {
             tank->angle_deg -= 360;
         }
     }
     if (TST_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE)) {
-        tank->angle_deg += 10;
+        tank->angle_deg += PER_TICK_ANGLE_DEG_CHANGE;
 		if (tank->angle_deg >= 360) {
             tank->angle_deg -= 360;
         }
     }
+}
+
+#define PLAY_MOVE_MUSIC() \
+do { \
+    if (!TST_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE) && !TST_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE) \
+        && !TST_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE) && !TST_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE)) { \
+        play_music(&(tk_music.move), 0); \
+    } \
+} while(0);
+
+#define PAUSE_MOVE_MUSIC() \
+do { \
+    if (!TST_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE) && !TST_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE) \
+        && !TST_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE) && !TST_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE)) { \
+        pause_music(&(tk_music.move)); \
+    } \
+} while(0);
+
+int check_resource_file() {
+    if (!get_absolute_path(DEFAULT_FONT_PATH)) {
+        return -1;
+    }
+    if (!get_absolute_path(DEFAULT_TANK_MOVE_MUSIC_PATH)) {
+        return -1;
+    }
+    if (!get_absolute_path(DEFAULT_TANK_EXPLODE_MUSIC_PATH)) {
+        return -1;
+    }
+
+    return 0;
 }
 
 #if 1
@@ -709,14 +821,17 @@ int main() { //gcc tank.c -o tank `sdl2-config --cflags --libs` -lm -g -lbsd
     int ret = -1;
 
     // 确认游戏资源是否存在
-    if (!get_absolute_path(DEFAULT_FONT_PATH)) {
-        return -1;
+    if (check_resource_file() != 0) {
+        return ret;
     }
 
     // 结合时间和进程ID作为随机种子（用于爆炸粒子）
     srand((unsigned int)time(NULL) ^ (unsigned int)getpid());
 
     if (init_gui() != 0) {
+        goto out;
+    }
+    if (init_music() != 0) {
         goto out;
     }
     if (init_ttf() != 0) {
@@ -747,15 +862,19 @@ int main() { //gcc tank.c -o tank `sdl2-config --cflags --libs` -lm -g -lbsd
                         quit = 1;
                         break;
                     case SDLK_w:
+                        PLAY_MOVE_MUSIC();
                         SET_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE);
                         break;
                     case SDLK_s:
+                        PLAY_MOVE_MUSIC();
                         SET_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE);
                         break;
                     case SDLK_a:
+                        PLAY_MOVE_MUSIC();
                         SET_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE);
                         break;
                     case SDLK_d:
+                        PLAY_MOVE_MUSIC();
                         SET_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE);
                         break;
                 }
@@ -763,20 +882,26 @@ int main() { //gcc tank.c -o tank `sdl2-config --cflags --libs` -lm -g -lbsd
                 switch (e.key.keysym.sym) {
                     case SDLK_w:
                         CLR_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE);
+                        PAUSE_MOVE_MUSIC();
                         break;
                     case SDLK_s:
                         CLR_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE);
+                        PAUSE_MOVE_MUSIC();
                         break;
                     case SDLK_a:
                         CLR_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE);
+                        PAUSE_MOVE_MUSIC();
                         break;
                     case SDLK_d:
                         CLR_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE);
+                        PAUSE_MOVE_MUSIC();
                         break;
                 }
             }
+            if (((e.type == SDL_KEYDOWN) || (e.type == SDL_KEYUP)) && (tk_key_value.mask != 0)) {
+                handle_key(tank);
+            }
         }
-        handle_key(tank);
 
         // 渲染场景
         render_gui_scene(tank);
@@ -790,6 +915,7 @@ out:
     delete_tank(&tank);
     cleanup_idpool();
     cleanup_ttf();
+    cleanup_music();
     cleanup_gui();
     return ret;
 }

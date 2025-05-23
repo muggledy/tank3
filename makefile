@@ -16,13 +16,13 @@ project_build := $(filter-out $(exclude_files), $(project_build))
 # 打印过滤后的待编译文件列表
 $(info Filtered project build(.c): $(project_build))
 
-LDFLAGS = -lm -lbsd  # 添加链接数学库等选项
+LDFLAGS = -lm -lbsd # 添加链接数学库等选项
 
 project_build_o := $(patsubst %.c,%.o,$(project_build))
 
 $(info Filtered project build(.o): $(project_build_o))
 
-SDL_FLAGS = $(shell pkg-config --cflags --libs sdl2 SDL2_ttf)
+SDL_FLAGS = $(shell pkg-config --cflags --libs sdl2 SDL2_ttf SDL2_mixer)
 
 # 指定头文件搜索路径列表(针对的是project_path变量目录下的.c文件)
 #header_paths := ./src/view ./src/event
@@ -34,7 +34,7 @@ $(info CFLAGS: $(CFLAGS))
 all:$(project_build_o)
 	gcc $(project_build_o) \
 	$(SDL_FLAGS) \
-	-o $(target) -L. $(LDFLAGS)
+	-o $(target) -L. $(LDFLAGS) -pthread
 
 $(project_path)/%.o:$(project_path)/%.c
 	gcc -c $^ -o $@ $(CFLAGS) -g

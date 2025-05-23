@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #define PATH_MAX_LEN 512
+#define THREAD_LOCAL __thread
 
 char* get_absolute_path(char *relative_path) {
-    static char absolute_path[PATH_MAX_LEN];
+    static THREAD_LOCAL char absolute_path[PATH_MAX_LEN];
 
     if (realpath(relative_path, absolute_path)) {
         printf("%s's absolute path is %s\n", relative_path, absolute_path);
@@ -18,9 +20,9 @@ char* get_absolute_path(char *relative_path) {
     return absolute_path;
 }
 
-// 正整数转字符串，使用 static 缓冲区（非线程安全）
+// 正整数转字符串，使用 static 缓冲区
 char* uint_to_str(unsigned int num) {
-    static char str[12]; // 足够存储 32 位整数（包括 '\0'）
+    static THREAD_LOCAL char str[12]; // 足够存储 32 位整数（包括 '\0'）
     int i = 0;
 
     // 特殊情况：0
