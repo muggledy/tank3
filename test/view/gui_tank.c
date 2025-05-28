@@ -1,17 +1,11 @@
 #include <math.h>
-#include <time.h>
-#include <unistd.h>
-#include "tank.h"
+#include "gui_tank.h"
 #include <bsd/string.h>
-#include <stdlib.h>
-#include "idpool.h"
-#include "sdl_text.h"
 #include "tools.h"
 
 // SDL相关变量
 SDL_Window*   tk_window = NULL;
 SDL_Renderer* tk_renderer = NULL;
-IDPool* tk_idpool = NULL;
 TTF_Font* tank_font8 = NULL;
 KeyValue tk_key_value;
 TankMusic tk_music;
@@ -63,14 +57,6 @@ int init_gui(void) {
     // 设置渲染器绘制颜色为白色
     SDL_SetRenderDrawColor(tk_renderer, 255, 255, 255, 255);
 
-    return 0;
-}
-
-int init_idpool() {
-    tk_idpool = id_pool_create(ID_POOL_SIZE);
-    if (!tk_idpool) {
-        return -1;
-    }
     return 0;
 }
 
@@ -169,13 +155,6 @@ void pause_music(MusicEntry *music) {
     if(music->channel != -1) {
         Mix_HaltChannel(music->channel);
         music->channel = -1;
-    }
-}
-
-void cleanup_idpool() {
-     if (tk_idpool) {
-        id_pool_destroy(tk_idpool);
-        tk_idpool = NULL;
     }
 }
 
@@ -497,7 +476,7 @@ static void render_explode_effect(SDL_Renderer* renderer, Tank *tank) {
         // 设置颜色(沿用坦克自身颜色)
         // Uint8 r, g, b, a;
         // SDL_GetRenderDrawColor(renderer, &r, &g, &b, &a); // 获取当前绘制颜色
-        SDL_SetRenderDrawColor(renderer, tank->basic_color->r, tank->basic_color->g, tank->basic_color->b, p->alpha);
+        SDL_SetRenderDrawColor(renderer, TANKCOLORPTR(tank)->r, TANKCOLORPTR(tank)->g, TANKCOLORPTR(tank)->b, p->alpha);
 
         // 绘制多边形
         SDL_Point sdl_points[5];
@@ -613,7 +592,7 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
     }
     Rectangle rect;
     // 设置坦克颜色（玩家坦克为蓝色，AI坦克为红色）
-    SDL_Color *color = tank->basic_color;
+    SDL_Color *color = TANKCOLORPTR(tank);
     SDL_Color body_color = (SDL_Color){COLORPTR2PARAM2(color, 0.5)};
     Point topline_center;
     Point bottomline_center;
@@ -674,63 +653,19 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
 }
 
 // 渲染场景
-void render_gui_scene(Tank* tank) {
+void render_gui_scene() {
+    Tank *tank = NULL;
     // 清空屏幕
     SDL_SetRenderDrawColor(tk_renderer, COLOR2PARAM(ID2COLOR(TK_WHITE)));
     SDL_RenderClear(tk_renderer);
 
     // 渲染坦克
-    draw_tank(tk_renderer, tank);
+    TAILQ_FOREACH(tank, &tk_shared_game_state.tank_list, chain) {
+        draw_tank(tk_renderer, tank);
+    }
 
     // 显示渲染内容
     SDL_RenderPresent(tk_renderer);
-}
-
-Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role) {
-    Tank *tank = NULL;
-
-    tank = malloc(sizeof(Tank));
-    if (!tank) {
-        goto error;
-    }
-    memset(tank, 0, sizeof(Tank));
-
-    strlcpy(tank->name, name, sizeof(tank->name));
-    tank->id = id_pool_allocate(tk_idpool);
-    if (!tank->id) {
-        printf("Error: id_pool_allocate failed\n");
-        goto error;
-    }
-    tank->position = pos;
-    tank->angle_deg = angle_deg;
-    tank->role = role;
-    SET_FLAG(tank, flags, TANK_ALIVE);
-    tank->basic_color = (TANK_ROLE_SELF == tank->role) ? ID2COLORPTR(TK_BLUE) : ID2COLORPTR(TK_RED);
-    tank->health = tank->max_health = (TANK_ROLE_SELF == tank->role) ? 250 : 250;
-    tank->speed = TANK_INIT_SPEED;
-
-    printf("create a tank(name:%s, id:%lu, total size:%luB, ExplodeEffect's size: %luB) success\n", 
-        tank->name, tank->id, sizeof(Tank), sizeof(tank->explode_effect));
-    return tank;
-error:
-    printf("Error: create tank %s failed\n", name);
-    if (tank) {
-        free(tank);
-    }
-    return NULL;
-}
-
-void delete_tank(Tank **tank) {
-    if (!tank || !(*tank)) {
-        if (!tank) {
-            *tank = NULL;
-        }
-        return;
-    }
-    printf("tank(id:%lu) %s(flags:%lu, score:%u, health:%u) is deleted\n", 
-        (*tank)->id, (*tank)->name, (*tank)->flags, (*tank)->score, (*tank)->health);
-    free(*tank);
-    *tank = NULL;
 }
 
 void print_key_value(KeyValue *v) {
@@ -783,22 +718,6 @@ void handle_key(Tank *tank) {
     }
 }
 
-#define PLAY_MOVE_MUSIC() \
-do { \
-    if (!TST_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE) && !TST_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE) \
-        && !TST_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE) && !TST_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE)) { \
-        play_music(&(tk_music.move), 0); \
-    } \
-} while(0);
-
-#define PAUSE_MOVE_MUSIC() \
-do { \
-    if (!TST_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE) && !TST_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE) \
-        && !TST_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE) && !TST_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE)) { \
-        pause_music(&(tk_music.move)); \
-    } \
-} while(0);
-
 int check_resource_file() {
     if (!get_absolute_path(DEFAULT_FONT_PATH)) {
         return -1;
@@ -813,7 +732,14 @@ int check_resource_file() {
     return 0;
 }
 
-#if 1
+void gui_init_tank(Tank *tank) {
+    if (!tank) {
+        return;
+    }
+    tank->basic_color = (void *)((TANK_ROLE_SELF == tank->role) ? ID2COLORPTR(TK_BLUE) : ID2COLORPTR(TK_RED));
+}
+
+#if 0
 int main() { //gcc tank.c -o tank `sdl2-config --cflags --libs` -lm -g -lbsd
     int quit = 0;
     SDL_Event e;

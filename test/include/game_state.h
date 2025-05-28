@@ -1,40 +1,9 @@
-#ifndef __TANK_H__
-    #define __TANK_H__
+#ifndef __GAME_STATE_H__
+    #define __GAME_STATE_H__
 
-#include <SDL2/SDL.h>
 #include "global.h"
-#include <SDL2/SDL_mixer.h>
-
-// 颜色定义
-// 定义颜色枚举
-typedef enum {
-    TK_WHITE,
-    TK_BLACK,
-    TK_RED,
-    TK_GREEN,
-    TK_BLUE,
-    TK_YELLOW
-} TKColorID;
-
-extern SDL_Color tk_colors[];
-#define ID2COLOR(colorid)    tk_colors[colorid]
-#define ID2COLORPTR(colorid) &(tk_colors[colorid])
-
-#define COLOR2PARAM(color) \
-    (color).r,(color).g,(color).b,(color).a
-#define COLORPTR2PARAM(colorptr) \
-    (colorptr)->r,(colorptr)->g,(colorptr)->b,\
-    (colorptr)->a
-#define COLORPTR2PARAM2(colorptr,alpha) \
-    (colorptr)->r,(colorptr)->g,(colorptr)->b,\
-    (int)(((colorptr)->a)*(alpha))
-
-#define SET_COLOR(color, r, g, b, a) do { \
-    (color).r = (r); \
-    (color).g = (g); \
-    (color).b = (b); \
-    (color).a = (a); \
-} while(0)
+#include "idpool.h"
+#include "queue.h"
 
 // 2D向量结构
 typedef struct __attribute__((packed)) {
@@ -43,6 +12,8 @@ typedef struct __attribute__((packed)) {
 } Vector2;
 
 typedef Vector2 Point;
+
+#define POS(point) point.x,point.y
 
 typedef struct __attribute__((packed)) {
 	Point lefttop;
@@ -70,8 +41,17 @@ typedef struct {
     int active_count;        // 当前激活粒子数
 } ExplodeEffect;
 
+// 炮弹结构
+typedef struct _Shell {
+    tk_uint32_t id;
+    tk_uint32_t owner_id;  // 发射者ID
+    Vector2 position;
+    Vector2 velocity;
+    TAILQ_ENTRY(_Shell) chain;
+} Shell;
+
 // 坦克结构
-typedef struct {
+typedef struct _Tank {
     tk_uint32_t id;
 #define TANK_NAME_MAXLEN 32
     tk_uint8_t name[TANK_NAME_MAXLEN];
@@ -88,39 +68,37 @@ typedef struct {
 #define TANK_DYING 0x00000002
 #define TANK_DEAD  0x00000004
     tk_uint32_t flags;
-    SDL_Color *basic_color; //基本颜色
+    void *basic_color; //基本颜色
     ExplodeEffect explode_effect; //爆炸效果
 #define TANK_ROLE_SELF  0
 #define TANK_ROLE_ENEMY 1
     tk_uint8_t role;
+#define DEFAULT_TANK_SHELLS_MAX_NUM 3
+    tk_uint8_t max_shell_num;
+    TAILQ_HEAD(_tank_shells_list, _Shell) shell_list;
+    TAILQ_ENTRY(_Tank) chain;
 } Tank;
 
-#define POS(point) point.x,point.y
-#define DEFAULT_FONT_PATH "./assets/Microsoft_JhengHei.ttf"
-
+// 游戏状态结构
 typedef struct {
-#define TK_KEY_W_ACTIVE 0x00000001
-#define TK_KEY_A_ACTIVE 0x00000002
-#define TK_KEY_S_ACTIVE 0x00000004
-#define TK_KEY_D_ACTIVE 0x00000008
-    tk_uint32_t mask;
-} KeyValue;
+#define DEFAULT_TANK_MAX_NUM 8
+    TAILQ_HEAD(_tk_tanks_list, _Tank) tank_list;
+    Tank *my_tank;
 
-typedef struct {
-    Mix_Chunk* sound;
-    int channel;
-} MusicEntry;
+    tk_uint32_t game_time; // 游戏时间（帧）
+    tk_uint8_t game_over;  // 游戏是否结束
+} GameState;
 
-typedef struct {
-#define DEFAULT_TANK_MOVE_MUSIC_PATH "./assets/tank_move.wav"
-    MusicEntry move;
-#define DEFAULT_TANK_EXPLODE_MUSIC_PATH "./assets/tank_explode.wav"
-    MusicEntry explode;
-} TankMusic;
+extern GameState tk_shared_game_state;
 
+#define mytankptr (tk_shared_game_state.my_tank)
+
+extern int init_idpool();
+extern void cleanup_idpool();
+
+extern void init_game_state();
+extern void cleanup_game_state();
 extern Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role);
-extern void delete_tank(Tank **tank);
-extern void render_tank(SDL_Renderer* renderer, Tank* tank);
-#define draw_tank render_tank
+extern void delete_tank(Tank *tank);
 
 #endif
