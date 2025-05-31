@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "game_state.h"
 #include <bsd/string.h>
+#include "debug.h"
 
 IDPool* tk_idpool = NULL;
 GameState tk_shared_game_state;
@@ -30,12 +31,12 @@ Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_
         tank_num++;
     }
     if (tank_num >= DEFAULT_TANK_MAX_NUM) {
-        printf("Error: create tank(%s) failed for current tank num %u already >= DEFAULT_TANK_MAX_NUM(%u)\n", 
+        tk_debug("Error: create tank(%s) failed for current tank num %u already >= DEFAULT_TANK_MAX_NUM(%u)\n", 
             name, tank_num, DEFAULT_TANK_MAX_NUM);
         return NULL;
     }
     if (tk_shared_game_state.my_tank && (TANK_ROLE_SELF == role)) {
-        printf("Error: create my tank(%s) failed for it(%s) already exists\n", name, tk_shared_game_state.my_tank->name);
+        tk_debug("Error: create my tank(%s) failed for it(%s) already exists\n", name, tk_shared_game_state.my_tank->name);
         return NULL;
     }
 
@@ -48,7 +49,7 @@ Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_
     strlcpy(tank->name, name, sizeof(tank->name));
     tank->id = id_pool_allocate(tk_idpool);
     if (!tank->id) {
-        printf("Error: id_pool_allocate failed\n");
+        tk_debug("Error: id_pool_allocate failed\n");
         goto error;
     }
     tank->position = pos;
@@ -66,11 +67,11 @@ Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_
         tk_shared_game_state.my_tank = tank;
     }
 
-    printf("create a tank(name:%s, id:%lu, total size:%luB, ExplodeEffect's size: %luB) success, total tank num %u\n", 
+    tk_debug("create a tank(name:%s, id:%lu, total size:%luB, ExplodeEffect's size: %luB) success, total tank num %u\n", 
         tank->name, tank->id, sizeof(Tank), sizeof(tank->explode_effect), tank_num+1);
     return tank;
 error:
-    printf("Error: create tank %s failed\n", name);
+    tk_debug("Error: create tank %s failed\n", name);
     if (tank) {
         free(tank);
     }
@@ -93,7 +94,7 @@ void delete_tank(Tank *tank) {
         free(shell);
         shell_num++;
     }
-    printf("tank(id:%lu) %s(flags:%lu, score:%u, health:%u) is deleted, and free %u shells\n", 
+    tk_debug("tank(id:%lu) %s(flags:%lu, score:%u, health:%u) is deleted, and free %u shells\n", 
         (tank)->id, (tank)->name, (tank)->flags, (tank)->score, (tank)->health, shell_num);
     free(tank);
 }
@@ -114,5 +115,5 @@ void cleanup_game_state() {
         delete_tank(tank);
         tank_num++;
     }
-    printf("total %u tanks are all freed\n", tank_num);
+    tk_debug("total %u tanks are all freed\n", tank_num);
 }

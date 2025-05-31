@@ -2,6 +2,7 @@
 #include "gui_tank.h"
 #include <bsd/string.h>
 #include "tools.h"
+#include "debug.h"
 
 // SDL相关变量
 SDL_Window*   tk_window = NULL;
@@ -35,7 +36,7 @@ static const Point particle_shape_vertices[][6] = {
 int init_gui(void) {
     // 初始化SDL
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
-        printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
+        tk_debug("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
         return -1;
     }
 
@@ -43,14 +44,14 @@ int init_gui(void) {
     tk_window = SDL_CreateWindow("坦克-3", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
                              800, 600, SDL_WINDOW_SHOWN);
     if (tk_window == NULL) {
-        printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
+        tk_debug("Window could not be created! SDL_Error: %s\n", SDL_GetError());
         return -2;
     }
 
     // 创建渲染器
     tk_renderer = SDL_CreateRenderer(tk_window, -1, SDL_RENDERER_ACCELERATED);
     if (tk_renderer == NULL) {
-        printf("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
+        tk_debug("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
         return -3;
     }
 
@@ -82,7 +83,7 @@ int load_music(MusicEntry *music, char *file_path) {
     music->channel = -1;
     music->sound = Mix_LoadWAV(file_path);
     if(music->sound == NULL) {
-        printf("无法加载声音(%s): %s\n", file_path, Mix_GetError());
+        tk_debug("无法加载声音(%s): %s\n", file_path, Mix_GetError());
         return -1;
     }
     return 0;
@@ -91,7 +92,7 @@ int load_music(MusicEntry *music, char *file_path) {
 int init_music() { // call after init_gui()
     // 初始化SDL_mixer
     if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
-        printf("SDL_mixer初始化失败: %s\n", Mix_GetError());
+        tk_debug("SDL_mixer初始化失败: %s\n", Mix_GetError());
         return -1;
     }
     memset(&tk_music, 0, sizeof(tk_music));
@@ -145,7 +146,7 @@ int play_music(MusicEntry *music, int only_once) {
     }
     music->channel = Mix_PlayChannel(-1, music->sound, only_once ? 0 : -1);
     if(music->channel == -1) {
-        printf("无法播放声音: %s\n", Mix_GetError());
+        tk_debug("无法播放声音: %s\n", Mix_GetError());
         return -1;
     }
     return 0;
@@ -672,7 +673,7 @@ void print_key_value(KeyValue *v) {
     if (!v || ((v->mask) == 0)) {
         return;
     }
-    printf("current key mask: ");
+    tk_debug("current key mask: ");
     if (TST_FLAG(v, mask, TK_KEY_W_ACTIVE)) {
         printf("W,");
     }

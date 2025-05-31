@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include "debug.h"
 
 #define PATH_MAX_LEN 512
 #define THREAD_LOCAL __thread
@@ -10,7 +11,7 @@ char* get_absolute_path(char *relative_path) {
     static THREAD_LOCAL char absolute_path[PATH_MAX_LEN];
 
     if (realpath(relative_path, absolute_path)) {
-        printf("%s's absolute path is %s\n", relative_path, absolute_path);
+        tk_debug("%s's absolute path is %s\n", relative_path, absolute_path);
     } else {
         snprintf(absolute_path, sizeof(absolute_path), "Error(get `%s` absolute path)", relative_path);
         perror(absolute_path);

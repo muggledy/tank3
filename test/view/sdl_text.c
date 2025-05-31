@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "sdl_text.h"
+#include "debug.h"
 
 // 屏幕尺寸
 #define SCREEN_WIDTH 800
@@ -18,13 +19,13 @@ unsigned int total_not_hit_font_cache_num = 0;
 int init(SDL_Window** window, SDL_Renderer** renderer) {
     // 初始化SDL
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        printf("SDL初始化失败: %s\n", SDL_GetError());
+        tk_debug("SDL初始化失败: %s\n", SDL_GetError());
         return 0;
     }
 
     // 初始化TTF
     if (TTF_Init() == -1) {
-        printf("SDL_ttf初始化失败: %s\n", TTF_GetError());
+        tk_debug("SDL_ttf初始化失败: %s\n", TTF_GetError());
         return 0;
     }
 
@@ -35,14 +36,14 @@ int init(SDL_Window** window, SDL_Renderer** renderer) {
                               SCREEN_WIDTH, SCREEN_HEIGHT, 
                               SDL_WINDOW_SHOWN);
     if (*window == NULL) {
-        printf("窗口创建失败: %s\n", SDL_GetError());
+        tk_debug("窗口创建失败: %s\n", SDL_GetError());
         return 0;
     }
 
     // 创建硬件加速渲染器
     *renderer = SDL_CreateRenderer(*window, -1, SDL_RENDERER_ACCELERATED);
     if (*renderer == NULL) {
-        printf("渲染器创建失败: %s\n", SDL_GetError());
+        tk_debug("渲染器创建失败: %s\n", SDL_GetError());
         return 0;
     }
 
@@ -51,7 +52,7 @@ int init(SDL_Window** window, SDL_Renderer** renderer) {
 
 int init_ttf() {
     if (TTF_Init() == -1) {
-        printf("SDL_ttf初始化失败: %s\n", TTF_GetError());
+        tk_debug("SDL_ttf初始化失败: %s\n", TTF_GetError());
         return -1;
     }
     return 0;
@@ -67,7 +68,7 @@ void cleanup_ttf() {
 TTF_Font* load_font(const char* font_path, int size) {
     TTF_Font* font = TTF_OpenFont(font_path, size);
     if (font == NULL) {
-        printf("字体加载失败: %s\n", TTF_GetError());
+        tk_debug("字体加载失败: %s\n", TTF_GetError());
     }
     return font;
 }
@@ -124,7 +125,7 @@ set_cache:
 
 void print_text_cache() {
     int i = 0;
-    printf("Cached Text Table(count %d):\n", cache_count);
+    tk_debug("Cached Text Table(count %d):\n", cache_count);
     for (i = 0; i < cache_count; i++) {
         printf("[%d] %s. hits:%u\n", i, text_cache[i].text, text_cache[i].hits);
     }
@@ -153,14 +154,14 @@ SDL_Texture* _render_text(SDL_Renderer* renderer, TTF_Font* font, const char* te
     // 使用TTF_RenderUTF8_Blended确保UTF-8支持
     SDL_Surface* text_surface = TTF_RenderUTF8_Blended(font, text, color);
     if (text_surface == NULL) {
-        printf("文本渲染失败: %s\n", TTF_GetError());
+        tk_debug("文本渲染失败: %s\n", TTF_GetError());
         return NULL;
     }
 
     // 创建纹理
     SDL_Texture* text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
     if (text_texture == NULL) {
-        printf("纹理创建失败: %s\n", SDL_GetError());
+        tk_debug("纹理创建失败: %s\n", SDL_GetError());
     }
 
     // 释放表面并添加到缓存

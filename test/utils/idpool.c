@@ -3,6 +3,7 @@
 #include <string.h>
 #include <limits.h>
 #include "idpool.h"
+#include "debug.h"
 
 #define BITS_PER_WORD (sizeof(uint32_t) * CHAR_BIT)
 #define MIN_ID 1           // 最小ID值
@@ -84,7 +85,7 @@ void id_pool_release(IDPool *pool, int id) {
 void id_pool_print(IDPool *pool) {
     if (!pool) return;
     
-    printf("ID Pool Status (Range: %d-%d):\n", MIN_ID, pool->max_id);
+    tk_debug("ID Pool Status (Range: %d-%d):\n", MIN_ID, pool->max_id);
     for (size_t i = 0; i < pool->size; i++) {
         size_t word_idx = i / BITS_PER_WORD;
         size_t bit = i % BITS_PER_WORD;
