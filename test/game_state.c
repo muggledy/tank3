@@ -145,6 +145,7 @@ void handle_key(Tank *tank, KeyValue *key_value) {
     tk_float32_t new_dir = 0;
 
     if (!tank || !key_value) return;
+    if ((key_value->mask) == 0) return;
     // print_key_value(key_value);
     if (TST_FLAG(key_value, mask, TK_KEY_W_ACTIVE)) {
         tank->position = move_point(tank->position, tank->angle_deg, tank->speed);

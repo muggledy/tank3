@@ -10,12 +10,21 @@ struct event_base* tk_event_base = NULL;
 int tk_pipe_fds[2] = {-1, -1};
 // 管道事件（控制线程检测到管道读事件，会从全局坦克事件队列中取出具体的键盘等事件进行handle处理）
 struct event *tk_pipe_event = NULL;
+// 定时器事件（用于周期更新子弹移动等游戏状态数据。定时器事件优先级最低）
+struct event *tk_tank_update_timer_event = NULL;
+#define TIMER_INTERVAL_MS (RENDER_FPS_MS*4)
+
+#define TK_EVENT_PRIORITY_TOTAL_LEVEL 2
+#define TK_EVENT_PRIORITY_HIGHEST_LEVEL 0
+#define TK_EVENT_PRIORITY_LOWEST_LEVEL (TK_EVENT_PRIORITY_TOTAL_LEVEL-1)
 
 // 全局坦克事件队列（控制线程、GUI线程共享）
 EventQueue tk_event_queue;
 
 extern void cleanup_event_loop(void);
 extern void handle_event(Event* event);
+extern struct event* add_timer_event(int timeout_ms, void (*callback)(void*), void* arg, int priority);
+extern void update_game_state_timer_handle();
 
 // 记录写端连接状态
 static int writer_connected = 0;
@@ -95,6 +104,7 @@ int init_event_loop() {
         tk_debug("Error: failed to create event base\n");
         goto error;
     }
+    event_base_priority_init(tk_event_base, TK_EVENT_PRIORITY_TOTAL_LEVEL); // 设置2个优先级级别
     // 创建管道读取事件
     tk_pipe_event = event_new(tk_event_base, tk_pipe_fds[0], 
                 EV_READ | EV_PERSIST | EV_ET,  // 添加 EV_ET 标志启用边缘触发
@@ -103,9 +113,16 @@ int init_event_loop() {
         tk_debug("Error: failed to create pipe event\n");
         goto error;
     }
+    // 设置高优先级（0是最高优先级）
+    event_priority_set(tk_pipe_event, TK_EVENT_PRIORITY_HIGHEST_LEVEL);
     // 添加管道事件到事件基
     if (event_add(tk_pipe_event, NULL) == -1) {
         tk_debug("Error: failed to add pipe event\n");
+        goto error;
+    }
+    tk_tank_update_timer_event = add_timer_event(TIMER_INTERVAL_MS, update_game_state_timer_handle, NULL, 
+        TK_EVENT_PRIORITY_LOWEST_LEVEL);
+    if (!tk_tank_update_timer_event) {
         goto error;
     }
     ret = 0;
@@ -132,6 +149,10 @@ void cleanup_event_loop() {
     if (tk_pipe_event) {
         event_free(tk_pipe_event);
         tk_pipe_event = NULL;
+    }
+    if (tk_tank_update_timer_event) {
+        event_free(tk_tank_update_timer_event);
+        tk_tank_update_timer_event = NULL;
     }
     if (tk_event_base) {
         event_base_free(tk_event_base);
@@ -229,4 +250,35 @@ void handle_event(Event* event) {
     }
     break;
     }
+}
+
+// 添加周期定时器事件
+struct event* add_timer_event(int timeout_ms, void (*callback)(void*), void* arg, int priority) {
+    if (!tk_event_base || !callback) return NULL;
+    
+    // 创建定时器事件
+    struct timeval timeout;
+    timeout.tv_sec = timeout_ms / 1000;
+    timeout.tv_usec = (timeout_ms % 1000) * 1000;
+    
+    struct event* timer_event = event_new(tk_event_base, -1, EV_PERSIST, 
+                                         (event_callback_fn)callback, arg);
+    if (!timer_event) {
+        tk_debug("Error: failed to create timer event\n");
+        return NULL;
+    }
+    // 设置低优先级（1是较低的优先级）
+    event_priority_set(timer_event, priority);
+    // 添加定时器事件
+    if (event_add(timer_event, &timeout) == -1) {
+        tk_debug("Error: failed to add timer event\n");
+        event_free(timer_event);
+        return NULL;
+    }
+    return timer_event;
+}
+
+void update_game_state_timer_handle() {
+    tk_debug_internal(DEBUG_TEST, "update_game_state_timer_handle\n");
+    
 }

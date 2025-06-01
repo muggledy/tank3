@@ -633,6 +633,7 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
 
 // 渲染场景
 void render_gui_scene() {
+    // tk_debug("render_gui_scene...\n");
     Tank *tank = NULL;
     // 清空屏幕
     SDL_SetRenderDrawColor(tk_renderer, COLOR2PARAM(ID2COLOR(TK_WHITE)));
@@ -721,11 +722,55 @@ void send_key_to_control_thread(int key_type, int key_value) {
     notify_event_loop();
 }
 
+#define OP_LIST_LEN 50
+static int op_cursor = OP_LIST_LEN-1;
+#define OP_K_W_DOWN 1
+#define OP_K_S_DOWN 2
+#define OP_K_A_DOWN 3
+#define OP_K_D_DOWN 4
+#define OP_K_W_UP   5
+#define OP_K_S_UP   6
+#define OP_K_A_UP   7
+#define OP_K_D_UP   8
+static int op_list[OP_LIST_LEN];
+
+static void insert_op_list(int op) {
+    if (op == op_list[op_cursor]) return;
+    op_list[op_cursor] = op;
+    op_cursor--;
+    if (op_cursor < -1) {
+        tk_debug("Error: insert_op_list failed for overflow(%d)\n", op_cursor);
+        exit(1);
+    }
+}
+
+static void init_op_list() {
+    op_cursor = OP_LIST_LEN-1;
+    op_list[op_cursor] = 0;
+}
+
+#define iter_op_list(op) for(int _i=OP_LIST_LEN-1, op=op_list[_i]; _i>op_cursor; _i--, op=op_list[_i])
+
+static void print_op_list() {
+    int op = 0;
+    tk_debug("op_list: ");
+    iter_op_list(op) {
+        printf("%d, ", op);
+    }
+    printf("\n");
+}
+
+static int get_op_list_num() {
+    return (OP_LIST_LEN - op_cursor - 1);
+}
+
 void gui_main_loop() {
     int quit = 0;
     SDL_Event e;
+    int op = 0;
     while (!quit) {
         // 处理事件
+        init_op_list();
         while (SDL_PollEvent(&e) != 0) {
             // 用户请求退出
             if (e.type == SDL_QUIT) {
@@ -745,22 +790,26 @@ void gui_main_loop() {
                         notify_control_thread_exit();
                         break;
                     case SDLK_w:
-                        send_key_to_control_thread(EVENT_KEY_PRESS, KEY_W);
+                        // send_key_to_control_thread(EVENT_KEY_PRESS, KEY_W);
+                        insert_op_list(OP_K_W_DOWN); // op_list用于实现按键去重
                         PLAY_MOVE_MUSIC();
                         SET_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE);
                         break;
                     case SDLK_s:
-                        send_key_to_control_thread(EVENT_KEY_PRESS, KEY_S);
+                        // send_key_to_control_thread(EVENT_KEY_PRESS, KEY_S);
+                        insert_op_list(OP_K_S_DOWN);
                         PLAY_MOVE_MUSIC();
                         SET_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE);
                         break;
                     case SDLK_a:
-                        send_key_to_control_thread(EVENT_KEY_PRESS, KEY_A);
+                        // send_key_to_control_thread(EVENT_KEY_PRESS, KEY_A);
+                        insert_op_list(OP_K_A_DOWN);
                         PLAY_MOVE_MUSIC();
                         SET_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE);
                         break;
                     case SDLK_d:
-                        send_key_to_control_thread(EVENT_KEY_PRESS, KEY_D);
+                        // send_key_to_control_thread(EVENT_KEY_PRESS, KEY_D);
+                        insert_op_list(OP_K_D_DOWN);
                         PLAY_MOVE_MUSIC();
                         SET_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE);
                         break;
@@ -768,22 +817,26 @@ void gui_main_loop() {
             } else if (e.type == SDL_KEYUP) {
                 switch (e.key.keysym.sym) {
                     case SDLK_w:
-                        send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_W);
+                        // send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_W);
+                        insert_op_list(OP_K_W_UP);
                         CLR_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE);
                         PAUSE_MOVE_MUSIC();
                         break;
                     case SDLK_s:
-                        send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_S);
+                        // send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_S);
+                        insert_op_list(OP_K_S_UP);
                         CLR_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE);
                         PAUSE_MOVE_MUSIC();
                         break;
                     case SDLK_a:
-                        send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_A);
+                        // send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_A);
+                        insert_op_list(OP_K_A_UP);
                         CLR_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE);
                         PAUSE_MOVE_MUSIC();
                         break;
                     case SDLK_d:
-                        send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_D);
+                        // send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_D);
+                        insert_op_list(OP_K_D_UP);
                         CLR_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE);
                         PAUSE_MOVE_MUSIC();
                         break;
@@ -793,11 +846,42 @@ void gui_main_loop() {
             //     handle_key(mytankptr, &tk_key_value);
             // }
         }
+        // print_op_list();
+        iter_op_list(op) {
+            if (OP_K_W_DOWN == op) {
+                send_key_to_control_thread(EVENT_KEY_PRESS, KEY_W);
+            } else if (OP_K_S_DOWN == op) {
+                send_key_to_control_thread(EVENT_KEY_PRESS, KEY_S);
+            } else if (OP_K_A_DOWN == op) {
+                send_key_to_control_thread(EVENT_KEY_PRESS, KEY_A);
+            } else if (OP_K_D_DOWN == op) {
+                send_key_to_control_thread(EVENT_KEY_PRESS, KEY_D);
+            } else if (OP_K_W_UP == op) {
+                send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_W);
+            } else if (OP_K_S_UP == op) {
+                send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_S);
+            } else if (OP_K_A_UP == op) {
+                send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_A);
+            } else if (OP_K_D_UP == op) {
+                send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_D);
+            }
+        }
+        if ((get_op_list_num() == 0) && (tk_key_value.mask != 0)) {
+            if (TST_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE)) {
+                send_key_to_control_thread(EVENT_KEY_PRESS, KEY_W);
+            } else if (TST_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE)) {
+                send_key_to_control_thread(EVENT_KEY_PRESS, KEY_S);
+            } else if (TST_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE)) {
+                send_key_to_control_thread(EVENT_KEY_PRESS, KEY_A);
+            } else if (TST_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE)) {
+                send_key_to_control_thread(EVENT_KEY_PRESS, KEY_D);
+            }
+        }
 
         // 渲染场景
         render_gui_scene();
         // 控制帧率
-        SDL_Delay(30); // 约60FPS
+        SDL_Delay(RENDER_FPS_MS); // 42ms约24FPS
     }
 }
 

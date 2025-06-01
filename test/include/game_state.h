@@ -101,9 +101,10 @@ typedef struct {
 extern GameState tk_shared_game_state;
 
 #define mytankptr (tk_shared_game_state.my_tank)
+#define RENDER_FPS_MS 50
 
 static void print_key_value(KeyValue *v) {
-    if (!v || ((v->mask) == 0)) {
+    if (!v /*|| ((v->mask) == 0)*/) {
         return;
     }
     tk_debug("current key mask: ");
