@@ -3,6 +3,7 @@
 #include <bsd/string.h>
 #include "tools.h"
 #include "debug.h"
+#include "event_loop.h"
 
 // SDL相关变量
 SDL_Window*   tk_window = NULL;
@@ -320,29 +321,6 @@ static void draw_tank_coordinates(SDL_Renderer* renderer, const Tank* tank) {
     // 而旋转角度有360，因此缓存经常失效，而且当前缓存是基于数组实现，性能较差，应该改造为基于哈希表
     draw_text(renderer, text1, POS(text_pos));
 #endif
-}
-
-// 计算从给定点沿着指定方向移动指定距离后的新坐标
-Point move_point(Point start, tk_float32_t direction, tk_float32_t distance) {
-    /*North: direction == 0*/
-	if (direction < 0) {
-        direction = 0;
-    }
-    if (direction > 360) {
-        direction = 360;
-    }
-    direction = 360 - direction + 90;
-	if (direction >= 360) {
-        direction -= 360;
-    }
-
-	// 将角度转换为弧度
-    tk_float32_t direction_rad = direction * M_PI / 180.0f;
-    // 计算新坐标
-    Point end;
-    end.x = start.x + distance * cosf(direction_rad);
-    end.y = start.y - distance * sinf(direction_rad);
-    return end;
 }
 
 // 比较函数，用于qsort排序
@@ -669,56 +647,6 @@ void render_gui_scene() {
     SDL_RenderPresent(tk_renderer);
 }
 
-void print_key_value(KeyValue *v) {
-    if (!v || ((v->mask) == 0)) {
-        return;
-    }
-    tk_debug("current key mask: ");
-    if (TST_FLAG(v, mask, TK_KEY_W_ACTIVE)) {
-        printf("W,");
-    }
-    if (TST_FLAG(v, mask, TK_KEY_S_ACTIVE)) {
-        printf("S,");
-    }
-    if (TST_FLAG(v, mask, TK_KEY_A_ACTIVE)) {
-        printf("A,");
-    }
-    if (TST_FLAG(v, mask, TK_KEY_D_ACTIVE)) {
-        printf("D,");
-    }
-    printf("\n");
-}
-
-void handle_key(Tank *tank) {
-    tk_float32_t new_dir = 0;
-
-    // print_key_value(&tk_key_value);
-    if (TST_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE)) {
-        tank->position = move_point(tank->position, tank->angle_deg, tank->speed);
-    }
-    if (TST_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE)) {
-        new_dir = tank->angle_deg + 180;
-        if (new_dir > 360) {
-            new_dir -= 360;
-        }
-        tank->position = move_point(tank->position, new_dir, tank->speed);
-    }
-#define PER_TICK_ANGLE_DEG_CHANGE 5
-    if (TST_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE)) {
-        tank->angle_deg += 360;
-        tank->angle_deg -= PER_TICK_ANGLE_DEG_CHANGE;
-        if (tank->angle_deg >= 360) {
-            tank->angle_deg -= 360;
-        }
-    }
-    if (TST_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE)) {
-        tank->angle_deg += PER_TICK_ANGLE_DEG_CHANGE;
-		if (tank->angle_deg >= 360) {
-            tank->angle_deg -= 360;
-        }
-    }
-}
-
 int check_resource_file() {
     if (!get_absolute_path(DEFAULT_FONT_PATH)) {
         return -1;
@@ -738,6 +666,139 @@ void gui_init_tank(Tank *tank) {
         return;
     }
     tank->basic_color = (void *)((TANK_ROLE_SELF == tank->role) ? ID2COLORPTR(TK_BLUE) : ID2COLORPTR(TK_RED));
+}
+
+void notify_control_thread_exit() {
+    Event *e = NULL;
+    e = create_event(EVENT_QUIT);
+    if (!e) {
+        exit(1);
+    }
+    enqueue_event(&tk_event_queue, e);
+    notify_event_loop();
+    close_write_end_of_pipe();
+}
+
+void send_key_to_control_thread(int key_type, int key_value) {
+    Event *e = NULL;
+    int type = key_type;
+    int value = key_value;
+
+#if 0
+    switch (key_type) {
+        case SDL_KEYDOWN:
+            type = EVENT_KEY_PRESS;
+            break;
+        case SDL_KEYUP:
+            type = EVENT_KEY_RELEASE;
+            break;
+        default:
+            return;
+    }
+    switch (key_value) {
+        case SDLK_w:
+            value = KEY_W;
+            break;
+        case SDLK_s:
+            value = KEY_S;
+            break;
+        case SDLK_a:
+            value = KEY_A;
+            break;
+        case SDLK_d:
+            value = KEY_D;
+            break;
+        default:
+            return;
+    }
+#endif
+    e = create_event(type);
+    if (!e) {
+        exit(1);
+    }
+    e->data.key = value;
+    enqueue_event(&tk_event_queue, e);
+    notify_event_loop();
+}
+
+void gui_main_loop() {
+    int quit = 0;
+    SDL_Event e;
+    while (!quit) {
+        // 处理事件
+        while (SDL_PollEvent(&e) != 0) {
+            // 用户请求退出
+            if (e.type == SDL_QUIT) {
+                quit = 1;
+                // stop_event_loop();
+                notify_control_thread_exit();
+            } else if (e.type == SDL_KEYDOWN) { // 处理键盘事件
+                if (mytankptr->health > 0) {
+                    mytankptr->health--;
+                } else {
+                    break;
+                }
+                switch (e.key.keysym.sym) {
+                    case SDLK_ESCAPE:
+                        quit = 1;
+                        // stop_event_loop();
+                        notify_control_thread_exit();
+                        break;
+                    case SDLK_w:
+                        send_key_to_control_thread(EVENT_KEY_PRESS, KEY_W);
+                        PLAY_MOVE_MUSIC();
+                        SET_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE);
+                        break;
+                    case SDLK_s:
+                        send_key_to_control_thread(EVENT_KEY_PRESS, KEY_S);
+                        PLAY_MOVE_MUSIC();
+                        SET_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE);
+                        break;
+                    case SDLK_a:
+                        send_key_to_control_thread(EVENT_KEY_PRESS, KEY_A);
+                        PLAY_MOVE_MUSIC();
+                        SET_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE);
+                        break;
+                    case SDLK_d:
+                        send_key_to_control_thread(EVENT_KEY_PRESS, KEY_D);
+                        PLAY_MOVE_MUSIC();
+                        SET_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE);
+                        break;
+                }
+            } else if (e.type == SDL_KEYUP) {
+                switch (e.key.keysym.sym) {
+                    case SDLK_w:
+                        send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_W);
+                        CLR_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE);
+                        PAUSE_MOVE_MUSIC();
+                        break;
+                    case SDLK_s:
+                        send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_S);
+                        CLR_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE);
+                        PAUSE_MOVE_MUSIC();
+                        break;
+                    case SDLK_a:
+                        send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_A);
+                        CLR_FLAG(&tk_key_value, mask, TK_KEY_A_ACTIVE);
+                        PAUSE_MOVE_MUSIC();
+                        break;
+                    case SDLK_d:
+                        send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_D);
+                        CLR_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE);
+                        PAUSE_MOVE_MUSIC();
+                        break;
+                }
+            }
+            // if (((e.type == SDL_KEYDOWN) || (e.type == SDL_KEYUP)) && (tk_key_value.mask != 0)) {
+            //     handle_key(mytankptr, &tk_key_value);
+            // }
+        }
+
+        // 渲染场景
+        render_gui_scene();
+        // 控制帧率
+        SDL_Delay(30); // 约60FPS
+    }
 }
 
 #if 0

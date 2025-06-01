@@ -4,6 +4,7 @@
 #include "global.h"
 #include "idpool.h"
 #include "queue.h"
+#include "debug.h"
 
 // 2D向量结构
 typedef struct __attribute__((packed)) {
@@ -22,6 +23,14 @@ typedef struct __attribute__((packed)) {
 	Point leftbottom;
 } Rectangle;
 
+typedef struct {
+#define TK_KEY_W_ACTIVE 0x00000001
+#define TK_KEY_A_ACTIVE 0x00000002
+#define TK_KEY_S_ACTIVE 0x00000004
+#define TK_KEY_D_ACTIVE 0x00000008
+    tk_uint32_t mask;
+} KeyValue;
+
 // 爆炸粒子
 typedef struct {
     Point position;     // 粒子位置
@@ -35,10 +44,10 @@ typedef struct {
 
 // 爆炸效果管理器
 typedef struct {
-#define MAX_PARTICLES 35     // 最大粒子数
+#define MAX_PARTICLES 35   // 最大粒子数
 #define PARTICLE_MAX_LIFE 50 // 粒子最大存活帧
     ExplodeParticle particles[MAX_PARTICLES]; //爆炸粒子集合
-    int active_count;        // 当前激活粒子数
+    int active_count;      // 当前激活粒子数
 } ExplodeEffect;
 
 // 炮弹结构
@@ -93,6 +102,26 @@ extern GameState tk_shared_game_state;
 
 #define mytankptr (tk_shared_game_state.my_tank)
 
+static void print_key_value(KeyValue *v) {
+    if (!v || ((v->mask) == 0)) {
+        return;
+    }
+    tk_debug("current key mask: ");
+    if (TST_FLAG(v, mask, TK_KEY_W_ACTIVE)) {
+        printf("W,");
+    }
+    if (TST_FLAG(v, mask, TK_KEY_S_ACTIVE)) {
+        printf("S,");
+    }
+    if (TST_FLAG(v, mask, TK_KEY_A_ACTIVE)) {
+        printf("A,");
+    }
+    if (TST_FLAG(v, mask, TK_KEY_D_ACTIVE)) {
+        printf("D,");
+    }
+    printf("\n");
+}
+
 extern int init_idpool();
 extern void cleanup_idpool();
 
@@ -100,5 +129,7 @@ extern void init_game_state();
 extern void cleanup_game_state();
 extern Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role);
 extern void delete_tank(Tank *tank);
+
+extern void handle_key(Tank *tank, KeyValue *key_value);
 
 #endif

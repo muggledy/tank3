@@ -25,7 +25,7 @@ void pipe_read_callback(evutil_socket_t fd, short what, void *arg) {
     int len;
     int total_bytes = 0;
 
-    tk_debug("pipe_read_callback is called...\n");
+    tk_debug_internal(DEBUG_TEST, "pipe_read_callback is called...\n");
     // 边缘触发模式下，必须读完所有数据
     while (1) {
         len = read(fd, buf, sizeof(buf));
@@ -33,11 +33,11 @@ void pipe_read_callback(evutil_socket_t fd, short what, void *arg) {
         if (len > 0) {
             // 有数据可读
             if (!writer_connected) {
-                tk_debug("Writer connected\n");
+                tk_debug_internal(DEBUG_TEST, "Writer connected\n");
                 writer_connected = 1;
             }
             total_bytes += len;
-            tk_debug("Read chunk: %d bytes\n", len); // 一个字节就代表一个坦克事件
+            tk_debug_internal(DEBUG_TEST, "Read chunk: %d bytes\n", len); // 一个字节就代表一个坦克事件
             // 处理数据
             // 从事件队列中取出事件并处理
             Event* event = dequeue_event(&tk_event_queue, 0);
@@ -52,7 +52,7 @@ void pipe_read_callback(evutil_socket_t fd, short what, void *arg) {
         } else if (len == 0) {
             // 写端关闭
             if (writer_connected) {
-                tk_debug("Writer disconnected\n");
+                tk_debug_internal(DEBUG_TEST, "Writer disconnected\n");
                 writer_connected = 0;
             }
             break;
@@ -61,7 +61,7 @@ void pipe_read_callback(evutil_socket_t fd, short what, void *arg) {
             if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
                 // 缓冲区已空，退出循环
                 if (total_bytes > 0) {
-                    tk_debug("Finished reading %d bytes\n", total_bytes);
+                    tk_debug_internal(DEBUG_TEST, "Finished reading %d bytes\n", total_bytes);
                 }
                 break;
             } else {
@@ -165,7 +165,7 @@ void stop_event_loop() {
     event_base_loopexit(tk_event_base, &immediate);
 }
 
-// 从其他线程通知事件循环有新事件
+// 从其他线程通知事件循环有新事件要处理
 void notify_event_loop() {
     if (tk_pipe_fds[1] == -1) return;
 
@@ -174,17 +174,52 @@ void notify_event_loop() {
     write(tk_pipe_fds[1], &c, 1);
 }
 
+KeyValue tk_key_value_for_control;
+
+// 处理来自本地GUI线程或其他（TODO：如网络）的坦克事件
 void handle_event(Event* event) {
     if (!event) return;
     switch (event->type) {
     case EVENT_KEY_PRESS:
     {
-        tk_debug("key %d down\n", event->data.key);
+        tk_debug_internal(DEBUG_TEST, "recv key %d down\n", event->data.key);
+        switch (event->data.key) {
+            case KEY_W:
+                SET_FLAG(&tk_key_value_for_control, mask, TK_KEY_W_ACTIVE);
+                break;
+            case KEY_S:
+                SET_FLAG(&tk_key_value_for_control, mask, TK_KEY_S_ACTIVE);
+                break;
+            case KEY_A:
+                SET_FLAG(&tk_key_value_for_control, mask, TK_KEY_A_ACTIVE);
+                break;
+            case KEY_D:
+                SET_FLAG(&tk_key_value_for_control, mask, TK_KEY_D_ACTIVE);
+                break;
+        }
+        handle_key(mytankptr, &tk_key_value_for_control);
+        print_key_value(&tk_key_value_for_control);
     }
     break;
     case EVENT_KEY_RELEASE:
     {
-        tk_debug("key %d up\n", event->data.key);
+        tk_debug_internal(DEBUG_TEST, "recv key %d up\n", event->data.key);
+        switch (event->data.key) {
+            case KEY_W:
+                CLR_FLAG(&tk_key_value_for_control, mask, TK_KEY_W_ACTIVE);
+                break;
+            case KEY_S:
+                CLR_FLAG(&tk_key_value_for_control, mask, TK_KEY_S_ACTIVE);
+                break;
+            case KEY_A:
+                CLR_FLAG(&tk_key_value_for_control, mask, TK_KEY_A_ACTIVE);
+                break;
+            case KEY_D:
+                CLR_FLAG(&tk_key_value_for_control, mask, TK_KEY_D_ACTIVE);
+                break;
+        }
+        handle_key(mytankptr, &tk_key_value_for_control);
+        print_key_value(&tk_key_value_for_control);
     }
     break;
     case EVENT_QUIT:

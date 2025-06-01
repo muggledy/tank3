@@ -1,14 +1,15 @@
-#include <stdio.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <string.h>
 #include <sys/syscall.h>  // 获取更短的线程ID
 #include <unistd.h>       // 提供 SYS_gettid 和 pid_t 的定义
+#include "debug.h"
 
 // 线程局部存储缓冲
 static __thread char prefix_buf[64];
 
-void tk_debug(const char *format, ...) {
+void tk_debug_internal(int control, const char *format, ...) {
+    if (!control) return;
     // 初始化线程本地前缀（每个线程只执行一次）
     if (prefix_buf[0] == '\0') {
         pid_t tid = syscall(SYS_gettid);  // 获取内核级线程ID

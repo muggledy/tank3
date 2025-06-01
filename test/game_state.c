@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "game_state.h"
 #include <bsd/string.h>
-#include "debug.h"
+#include <math.h>
 
 IDPool* tk_idpool = NULL;
 GameState tk_shared_game_state;
@@ -116,4 +116,58 @@ void cleanup_game_state() {
         tank_num++;
     }
     tk_debug("total %u tanks are all freed\n", tank_num);
+}
+
+// 计算从给定点沿着指定方向移动指定距离后的新坐标
+Point move_point(Point start, tk_float32_t direction, tk_float32_t distance) {
+    /*North: direction == 0*/
+	if (direction < 0) {
+        direction = 0;
+    }
+    if (direction > 360) {
+        direction = 360;
+    }
+    direction = 360 - direction + 90;
+	if (direction >= 360) {
+        direction -= 360;
+    }
+
+	// 将角度转换为弧度
+    tk_float32_t direction_rad = direction * M_PI / 180.0f;
+    // 计算新坐标
+    Point end;
+    end.x = start.x + distance * cosf(direction_rad);
+    end.y = start.y - distance * sinf(direction_rad);
+    return end;
+}
+
+void handle_key(Tank *tank, KeyValue *key_value) {
+    tk_float32_t new_dir = 0;
+
+    if (!tank || !key_value) return;
+    // print_key_value(key_value);
+    if (TST_FLAG(key_value, mask, TK_KEY_W_ACTIVE)) {
+        tank->position = move_point(tank->position, tank->angle_deg, tank->speed);
+    }
+    if (TST_FLAG(key_value, mask, TK_KEY_S_ACTIVE)) {
+        new_dir = tank->angle_deg + 180;
+        if (new_dir > 360) {
+            new_dir -= 360;
+        }
+        tank->position = move_point(tank->position, new_dir, tank->speed);
+    }
+#define PER_TICK_ANGLE_DEG_CHANGE 5
+    if (TST_FLAG(key_value, mask, TK_KEY_A_ACTIVE)) {
+        tank->angle_deg += 360;
+        tank->angle_deg -= PER_TICK_ANGLE_DEG_CHANGE;
+        if (tank->angle_deg >= 360) {
+            tank->angle_deg -= 360;
+        }
+    }
+    if (TST_FLAG(key_value, mask, TK_KEY_D_ACTIVE)) {
+        tank->angle_deg += PER_TICK_ANGLE_DEG_CHANGE;
+		if (tank->angle_deg >= 360) {
+            tank->angle_deg -= 360;
+        }
+    }
 }

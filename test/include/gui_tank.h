@@ -11,14 +11,6 @@
 #include "sdl_text.h"
 
 typedef struct {
-#define TK_KEY_W_ACTIVE 0x00000001
-#define TK_KEY_A_ACTIVE 0x00000002
-#define TK_KEY_S_ACTIVE 0x00000004
-#define TK_KEY_D_ACTIVE 0x00000008
-    tk_uint32_t mask;
-} KeyValue;
-
-typedef struct {
     Mix_Chunk* sound;
     int channel;
 } MusicEntry;
@@ -94,8 +86,11 @@ extern void cleanup_music();
 void render_gui_scene();
 extern void render_tank(SDL_Renderer* renderer, Tank* tank);
 #define draw_tank render_tank
-extern void handle_key(Tank *tank);
 extern int check_resource_file();
 extern void gui_init_tank(Tank *tank);
+
+extern void notify_control_thread_exit();
+// extern void send_key_to_control_thread(int key_type, int key_value);
+extern void gui_main_loop();
 
 #endif
