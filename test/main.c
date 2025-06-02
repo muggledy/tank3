@@ -30,7 +30,7 @@ void* gui_thread(void* arg) {
         goto out;
     }
     init_game_state();
-    create_tank("muggledy", (Point){400,300}, 300, TANK_ROLE_SELF);
+    create_tank("muggledy", get_random_grid_pos_for_tank(), 300, TANK_ROLE_SELF);
     if (!mytankptr) {
         goto out;
     }
@@ -92,6 +92,6 @@ int main() {
     // 等待线程结束
     pthread_join(control_tid, NULL);
     pthread_join(gui_tid, NULL);
-    tk_debug("game over!\n");
+    tk_debug("game over(%u)!\n", tk_shared_game_state.game_time);
     return 0;
 }

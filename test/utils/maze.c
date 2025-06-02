@@ -2,44 +2,54 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-// 定义常量
-#define HORIZON_GRID_NUMBER 4
-#define VERTICAL_GRID_NUMBER 3
-#define GRID_SIZE 40
-#define MAX_GRID_ID (HORIZON_GRID_NUMBER * VERTICAL_GRID_NUMBER)
+#include "maze.h"
+#include "debug.h"
 
 // 方向数组
 static int dx[] = {0, -1, 0, 1};
 static int dy[] = {-1, 0, 1, 0};
 
-// 网格结构体
-typedef struct {
-    int x;
-    int y;
-} Grid;
-
-// 向量结构体
-typedef struct {
-    float x;
-    float y;
-} Vec;
-
-// 墙结构体
-typedef struct {
-    Grid first;
-    Grid second;
-} Wall;
-
-// 迷宫结构体
-typedef struct {
-    int map[MAX_GRID_ID][MAX_GRID_ID];
-    int vis[HORIZON_GRID_NUMBER][VERTICAL_GRID_NUMBER];
-} Maze;
-
 // 获取网格ID
-int grid_id(Grid g) {
-    return g.y * HORIZON_GRID_NUMBER + g.x;
+int grid_id(Grid *g) {
+    return g->y * HORIZON_GRID_NUMBER + g->x;
+}
+
+// 判断网格是否合法，合法返回1
+int is_grid_valid(Grid *g) {
+    if ((g->x < 0) || (g->y < 0) || (g->x >= HORIZON_GRID_NUMBER) || (g->y >= VERTICAL_GRID_NUMBER)) {
+        return 0;
+    }
+    return 1;
+}
+
+// 判断两个网格是否上下或左右相邻（调用者自己应确保输入的网格参数合法：is_grid_valid return 1）
+int is_two_grids_adjacent(Grid *g1, Grid *g2) {
+    if (!((g1->x == g2->x) || (g1->y == g2->y))) { // 非相邻网格
+        if ((abs((g1->y - g2->y)) == 1) && (abs((g1->x - g2->x)) == 1)) {
+            return MAZE_DIAGONAL_GRID; // 对角相连的两个网格
+        }
+        return MAZE_UNRELATED_GRID;
+    }
+    if ((g1->x == g2->x) && (g1->y == g2->y)) {
+        return MAZE_SAME_GRID; // 同一个网格
+    }
+    if (g1->x == g2->x) {
+        if (abs((g1->y - g2->y)) == 1) {
+            return MAZE_ADJACENT_GRID; // 相邻网格
+        }
+    }
+    if (g1->y == g2->y) {
+        if (abs((g1->x - g2->x)) == 1) {
+            return MAZE_ADJACENT_GRID;
+        }
+    }
+    return MAZE_UNRELATED_GRID; // can't be here
+}
+
+// 判断两个网格之间是否打通（调用者自己应确保输入的两个网格是上下左右相邻的：is_two_grids_adjacent return MAZE_ADJACENT_GRID。
+// 因为对于非上下左右相邻的网格，没有“打通”这一说）
+int is_two_grids_connected(Maze* maze, Grid *g1, Grid *g2) {
+    return maze->map[grid_id(g1)][grid_id(g2)];
 }
 
 // 生成随机数
@@ -53,8 +63,9 @@ void maze_init(Maze* maze) {
     memset(maze->vis, 0, sizeof(maze->vis));
 }
 
-// 生成迷宫（Prim遍历墙算法，https://www.bilibili.com/video/BV1eJ411k7XV）
+// 生成迷宫（Prim遍历墙算法）
 void maze_generate(Maze* maze) {
+    srand(time(NULL));
     maze_init(maze);
     
     Wall* walls = malloc(sizeof(Wall) * HORIZON_GRID_NUMBER * VERTICAL_GRID_NUMBER * 4); // 候选墙列表
@@ -75,8 +86,8 @@ void maze_generate(Maze* maze) {
         
         if (!maze->vis[wall.second.x][wall.second.y]) { // 如果墙壁对应的网格已访问过，说明这个网格已经被打通了，那就不能再从另一个方向打通它，也就是不能进入if块
             // 打通两个网格
-            int id1 = grid_id(wall.first); // 第i列第j行网格的id为：i + HORIZON_GRID_NUMBER*j，譬如5行3列的地图，总计15个网格，第1行1列的网格就是第0个网格，最后一行最后一列的网格就是第14个网格
-            int id2 = grid_id(wall.second);
+            int id1 = grid_id(&wall.first); // 第i列第j行网格的id为：i + HORIZON_GRID_NUMBER*j，譬如5行3列的地图，总计15个网格，第1行1列的网格就是第0个网格，最后一行最后一列的网格就是第14个网格
+            int id2 = grid_id(&wall.second);
             maze->map[id1][id2] = maze->map[id2][id1] = 1; // map数组标识的含义是：任意相邻两个网格之间是否打通，譬如map[m][n]=1表示第m个网格和第n个网格之间已被打通，但注意只能记录和查询上下左右相邻网格之间的打通状态
             
             maze->vis[wall.second.x][wall.second.y] = 1;
@@ -94,8 +105,8 @@ void maze_generate(Maze* maze) {
                 if (maze->vis[nx][ny]) continue; // 如果墙壁对应的网格已访问过，则该墙壁不能再放入候选列表
                 
                 Grid next = {nx, ny};
-                int current_id = grid_id(wall.second);
-                int next_id = grid_id(next);
+                int current_id = grid_id(&wall.second);
+                int next_id = grid_id(&next);
                 
                 if (maze->map[current_id][next_id] == 0) {
                     walls[wall_count++] = (Wall){wall.second, next};
@@ -107,14 +118,8 @@ void maze_generate(Maze* maze) {
     free(walls);
 }
 
-// 获取墙壁位置
-typedef struct {
-    Vec start;
-    Vec end;
-} Block;
-
-Block* get_block_positions(Maze* maze, int* block_count) {
-    Block* blocks = malloc(sizeof(Block) * HORIZON_GRID_NUMBER * VERTICAL_GRID_NUMBER * 2);
+Block* get_block_positions(Maze* maze, tk_uint16_t* block_count) {
+    Block* blocks = malloc(sizeof(Block) * (HORIZON_GRID_NUMBER * VERTICAL_GRID_NUMBER * 2 + 4));
     *block_count = 0;
     
     // 检查垂直墙壁
@@ -122,7 +127,7 @@ Block* get_block_positions(Maze* maze, int* block_count) {
         for (int x = 0; x < HORIZON_GRID_NUMBER - 1; x++) {
             Grid g1 = {x, y};
             Grid g2 = {x + 1, y};
-            if (maze->map[grid_id(g1)][grid_id(g2)] == 0) {
+            if (maze->map[grid_id(&g1)][grid_id(&g2)] == 0) {
                 blocks[*block_count].start = (Vec){(x + 1) * GRID_SIZE, y * GRID_SIZE};
                 blocks[*block_count].end = (Vec){(x + 1) * GRID_SIZE, (y + 1) * GRID_SIZE};
                 (*block_count)++;
@@ -135,7 +140,7 @@ Block* get_block_positions(Maze* maze, int* block_count) {
         for (int y = 0; y < VERTICAL_GRID_NUMBER - 1; y++) {
             Grid g1 = {x, y};
             Grid g2 = {x, y + 1};
-            if (maze->map[grid_id(g1)][grid_id(g2)] == 0) {
+            if (maze->map[grid_id(&g1)][grid_id(&g2)] == 0) {
                 blocks[*block_count].start = (Vec){x * GRID_SIZE, (y + 1) * GRID_SIZE};
                 blocks[*block_count].end = (Vec){(x + 1) * GRID_SIZE, (y + 1) * GRID_SIZE};
                 (*block_count)++;
@@ -143,12 +148,25 @@ Block* get_block_positions(Maze* maze, int* block_count) {
         }
     }
     
+    // 上下左右边界墙壁
+    blocks[*block_count].start = (Vec){0, 0};
+    blocks[*block_count].end = (Vec){GRID_SIZE*HORIZON_GRID_NUMBER, 0};
+    (*block_count)++;
+    blocks[*block_count].start = (Vec){0, GRID_SIZE*VERTICAL_GRID_NUMBER};
+    blocks[*block_count].end = (Vec){GRID_SIZE*HORIZON_GRID_NUMBER, GRID_SIZE*VERTICAL_GRID_NUMBER};
+    (*block_count)++;
+    blocks[*block_count].start = (Vec){0, 0};
+    blocks[*block_count].end = (Vec){0, GRID_SIZE*VERTICAL_GRID_NUMBER};
+    (*block_count)++;
+    blocks[*block_count].start = (Vec){GRID_SIZE*HORIZON_GRID_NUMBER, 0};
+    blocks[*block_count].end = (Vec){GRID_SIZE*HORIZON_GRID_NUMBER, GRID_SIZE*VERTICAL_GRID_NUMBER};
+    (*block_count)++;
     return blocks;
 }
 
 // 更直观的网格墙打印函数
 void print_maze_walls(Maze* maze) {
-    printf("Maze Wall Visualization:\n");
+    tk_debug("Maze Wall Visualization:\n");
     
     // 打印顶部边界
     printf("+");
@@ -169,7 +187,7 @@ void print_maze_walls(Maze* maze) {
             // 打印右侧垂直墙
             if (x < HORIZON_GRID_NUMBER - 1) {
                 Grid right = {x + 1, y};
-                printf("%s", maze->map[grid_id(current)][grid_id(right)] ? " " : "|");
+                printf("%s", maze->map[grid_id(&current)][grid_id(&right)] ? " " : "|");
             } else {
                 printf("|");
             }
@@ -182,7 +200,7 @@ void print_maze_walls(Maze* maze) {
             for (int x = 0; x < HORIZON_GRID_NUMBER; x++) {
                 Grid current = {x, y};
                 Grid below = {x, y + 1};
-                printf("%s", maze->map[grid_id(current)][grid_id(below)] ? "   " : "---");
+                printf("%s", maze->map[grid_id(&current)][grid_id(&below)] ? "   " : "---");
                 printf("+");
             }
             printf("\n");
@@ -197,9 +215,8 @@ void print_maze_walls(Maze* maze) {
     printf("\n");
 }
 
+#if 0
 int main() {
-    srand(time(NULL));
-    
     Maze maze;
     maze_generate(&maze);
     
@@ -217,3 +234,4 @@ int main() {
     free(blocks);
     return 0;
 }
+#endif

@@ -200,6 +200,13 @@ KeyValue tk_key_value_for_control;
 // 处理来自本地GUI线程或其他（TODO：如网络）的坦克事件
 void handle_event(Event* event) {
     if (!event) return;
+    if (!mytankptr || TST_FLAG(mytankptr, flags, TANK_DEAD)) {
+        tk_debug("warning: your tank is dead, game is over\n");
+        if (event->type == EVENT_QUIT) {
+            goto quit_event_loop;
+        }
+        return;
+    }
     switch (event->type) {
     case EVENT_KEY_PRESS:
     {
@@ -245,6 +252,7 @@ void handle_event(Event* event) {
     break;
     case EVENT_QUIT:
     {
+quit_event_loop:
         tk_debug("recv quit event, stop_event_loop\n");
         stop_event_loop();
     }

@@ -49,3 +49,8 @@ char* uint_to_str(unsigned int num) {
 
     return str;
 }
+
+// 生成 [m,n] 之间的随机整数
+int random_range(int m, int n) {
+    return m + rand() / (RAND_MAX / (n - m + 1) + 1);
+}

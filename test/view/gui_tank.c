@@ -42,7 +42,7 @@ int init_gui(void) {
     }
 
     // 创建窗口
-    tk_window = SDL_CreateWindow("坦克-3", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
+    tk_window = SDL_CreateWindow("坦克3", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
                              800, 600, SDL_WINDOW_SHOWN);
     if (tk_window == NULL) {
         tk_debug("Window could not be created! SDL_Error: %s\n", SDL_GetError());
@@ -160,29 +160,6 @@ void pause_music(MusicEntry *music) {
     }
 }
 
-// 绕指定点pivot旋转一个点point
-static Point rotate_point(const Point *point, tk_float32_t angle, const Point *pivot) {
-    if (0 == angle) {
-        return (Point){point->x, point->y};
-    }
-	/*对于一个点 (x, y) 绕中心点 (cx, cy) 旋转 θ 角度后的新坐标 (x', y') 为：
-	x' = cx + (x - cx) * cosθ - (y - cy) * sinθ
-	y' = cy + (x - cx) * sinθ + (y - cy) * cosθ*/
-    // 平移到原点
-    tk_float32_t translated_x = point->x - pivot->x;
-    tk_float32_t translated_y = point->y - pivot->y;
-    /* 计算旋转矩阵 R = [ cosθ  -sinθ ]
-					  [ sinθ   cosθ ]
-	所需的三角函数值 */
-    tk_float32_t cos_angle = cosf(angle);
-    tk_float32_t sin_angle = sinf(angle);
-    // 应用旋转矩阵：R·([x,y]^T)
-    tk_float32_t rotated_x = translated_x * cos_angle - translated_y * sin_angle;
-    tk_float32_t rotated_y = translated_x * sin_angle + translated_y * cos_angle;
-    // 平移回原位置
-    return (Point){rotated_x + pivot->x, rotated_y + pivot->y};
-}
-
 // 计算旋转后的点
 static void calculate_rotated_rectangle(const Point *center, tk_float32_t width, tk_float32_t height, tk_float32_t angle_deg, Rectangle *rect) {
     tk_float32_t angle = angle_deg * (M_PI / 180.0f);  // 将角度转换为弧度
@@ -202,7 +179,7 @@ static void calculate_rotated_rectangle(const Point *center, tk_float32_t width,
     }
 }
 
-Rectangle draw_rectangle(SDL_Renderer* renderer, const Point *center, 
+Rectangle draw_solid_rectangle(SDL_Renderer* renderer, const Point *center, 
         tk_float32_t width, tk_float32_t height, tk_float32_t angle_deg, SDL_Color *color) {
     /*East: angle_deg == 0*/
     Rectangle rect;
@@ -536,6 +513,14 @@ static void update_explode_particles_state(Tank *tank) {
     }
 }
 
+void draw_rectangle(SDL_Renderer* renderer, Rectangle *rect) {
+    if (!renderer || !rect) return;
+    SDL_RenderDrawLine(renderer, POS(rect->lefttop), POS(rect->righttop));
+    SDL_RenderDrawLine(renderer, POS(rect->righttop), POS(rect->rightbottom));
+    SDL_RenderDrawLine(renderer, POS(rect->rightbottom), POS(rect->leftbottom));
+    SDL_RenderDrawLine(renderer, POS(rect->leftbottom), POS(rect->lefttop));
+}
+
 // 渲染坦克
 void render_tank(SDL_Renderer* renderer, Tank* tank) {
     /* lefttop     righttop
@@ -570,7 +555,6 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
         return;
     }
     Rectangle rect;
-    // 设置坦克颜色（玩家坦克为蓝色，AI坦克为红色）
     SDL_Color *color = TANKCOLORPTR(tank);
     SDL_Color body_color = (SDL_Color){COLORPTR2PARAM2(color, 0.5)};
     Point topline_center;
@@ -592,19 +576,19 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
         angle_deg -= 360;
     }
     // 绘制坦克主体
-    rect = draw_rectangle(renderer, &(tank->position), TANK_LENGTH, TANK_WIDTH, angle_deg, &body_color);
+    rect = draw_solid_rectangle(renderer, &(tank->position), TANK_LENGTH, TANK_WIDTH, angle_deg, &body_color);
 
     // 绘制履带
     topline_center = get_line_center(&rect.lefttop, &rect.righttop);
     bottomline_center = get_line_center(&rect.leftbottom, &rect.rightbottom);
-    draw_rectangle(renderer, &topline_center, TANK_LENGTH-4, 4, angle_deg, color);
-    draw_rectangle(renderer, &bottomline_center, TANK_LENGTH-4, 4, angle_deg, color);
+    draw_solid_rectangle(renderer, &topline_center, TANK_LENGTH-4, 4, angle_deg, color);
+    draw_solid_rectangle(renderer, &bottomline_center, TANK_LENGTH-4, 4, angle_deg, color);
 
     // 绘制炮塔
-    draw_rectangle(renderer, &(tank->position), 15, 15, angle_deg, color);
+    draw_solid_rectangle(renderer, &(tank->position), 15, 15, angle_deg, color);
     rightline_center = get_line_center(&rect.righttop, &rect.rightbottom);
     gun_barrel_center = get_line_k_center(&(tank->position), &rightline_center, 0.8);
-    draw_rectangle(renderer, &gun_barrel_center, 18, 9, angle_deg, color);
+    draw_solid_rectangle(renderer, &gun_barrel_center, 18, 9, angle_deg, color);
 
     // 绘制坦克生命值
     SDL_RenderDrawPoint(renderer, POS(tank->position));
@@ -629,15 +613,32 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
         draw_tank_coordinates(renderer, tank);
     }
     tank_font8 = NULL;
+
+    // 绘制坦克外轮廓边界（仅用于测试）
+#if 1
+    SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_BLACK), 1));
+    draw_rectangle(renderer, &tank->outline);
+#endif
 }
+
+// 对目标位置pos1进行偏移处理（pos2为偏移量）
+#define POS_OFFSET(pos1, pos2) (pos1).x+(pos2).x,(pos1).y+(pos2).y
 
 // 渲染场景
 void render_gui_scene() {
     // tk_debug("render_gui_scene...\n");
     Tank *tank = NULL;
+
     // 清空屏幕
     SDL_SetRenderDrawColor(tk_renderer, COLOR2PARAM(ID2COLOR(TK_WHITE)));
     SDL_RenderClear(tk_renderer);
+
+    // 绘制墙壁
+    SDL_SetRenderDrawColor(tk_renderer, COLOR2PARAM(ID2COLOR(TK_BLACK)));
+    for (int i=0; i<tk_shared_game_state.blocks_num; i++) {
+        SDL_RenderDrawLine(tk_renderer, POS_OFFSET(tk_shared_game_state.blocks[i].start, tk_maze_offset), 
+            POS_OFFSET(tk_shared_game_state.blocks[i].end, tk_maze_offset));
+    }
 
     // 渲染坦克
     TAILQ_FOREACH(tank, &tk_shared_game_state.tank_list, chain) {
@@ -663,9 +664,8 @@ int check_resource_file() {
 }
 
 void gui_init_tank(Tank *tank) {
-    if (!tank) {
-        return;
-    }
+    if (!tank) return;
+    // 设置坦克颜色（玩家坦克为蓝色，AI坦克为红色）
     tank->basic_color = (void *)((TANK_ROLE_SELF == tank->role) ? ID2COLORPTR(TK_BLUE) : ID2COLORPTR(TK_RED));
 }
 
@@ -842,9 +842,6 @@ void gui_main_loop() {
                         break;
                 }
             }
-            // if (((e.type == SDL_KEYDOWN) || (e.type == SDL_KEYUP)) && (tk_key_value.mask != 0)) {
-            //     handle_key(mytankptr, &tk_key_value);
-            // }
         }
         // print_op_list();
         iter_op_list(op) {
@@ -880,6 +877,7 @@ void gui_main_loop() {
 
         // 渲染场景
         render_gui_scene();
+        tk_shared_game_state.game_time++;
         // 控制帧率
         SDL_Delay(RENDER_FPS_MS); // 42ms约24FPS
     }

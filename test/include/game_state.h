@@ -5,6 +5,7 @@
 #include "idpool.h"
 #include "queue.h"
 #include "debug.h"
+#include "maze.h"
 
 // 2D向量结构
 typedef struct __attribute__((packed)) {
@@ -69,7 +70,7 @@ typedef struct _Tank {
 #define TANK_WIDTH  23
     tk_float32_t angle_deg; // 朝向角度
     tk_float32_t speed; // 移动速度
-#define TANK_INIT_SPEED 2
+#define TANK_INIT_SPEED 4
     tk_uint16_t health; // 生命值
     tk_uint16_t max_health;
     tk_uint16_t score;  // 分数
@@ -84,15 +85,21 @@ typedef struct _Tank {
     tk_uint8_t role;
 #define DEFAULT_TANK_SHELLS_MAX_NUM 3
     tk_uint8_t max_shell_num;
+    Rectangle outline; // 坦克轮廓边界（简化为矩形）
     TAILQ_HEAD(_tank_shells_list, _Shell) shell_list;
     TAILQ_ENTRY(_Tank) chain;
 } Tank;
+
+extern Point tk_maze_offset;
 
 // 游戏状态结构
 typedef struct {
 #define DEFAULT_TANK_MAX_NUM 8
     TAILQ_HEAD(_tk_tanks_list, _Tank) tank_list;
     Tank *my_tank;
+    Maze maze; // 迷宫地图
+    Block* blocks;          // 地图墙壁集合
+    tk_uint16_t blocks_num; // 地图墙壁数量
 
     tk_uint32_t game_time; // 游戏时间（帧）
     tk_uint8_t game_over;  // 游戏是否结束
@@ -104,10 +111,17 @@ extern GameState tk_shared_game_state;
 #define RENDER_FPS_MS 50
 
 static void print_key_value(KeyValue *v) {
+    // if (!DEBUG_TEST) {
+    //     return;
+    // }
     if (!v /*|| ((v->mask) == 0)*/) {
         return;
     }
     tk_debug("current key mask: ");
+    if ((v->mask) == 0) {
+        printf("null\n");
+        return;
+    }
     if (TST_FLAG(v, mask, TK_KEY_W_ACTIVE)) {
         printf("W,");
     }
@@ -130,7 +144,11 @@ extern void init_game_state();
 extern void cleanup_game_state();
 extern Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role);
 extern void delete_tank(Tank *tank);
+extern Point get_random_grid_pos();
+extern Point get_random_grid_pos_for_tank();
 
 extern void handle_key(Tank *tank, KeyValue *key_value);
+
+extern Point rotate_point(const Point *point, tk_float32_t angle, const Point *pivot);
 
 #endif

@@ -127,7 +127,7 @@ void print_text_cache() {
     int i = 0;
     tk_debug("Cached Text Table(count %d):\n", cache_count);
     for (i = 0; i < cache_count; i++) {
-        printf("[%d] %s. hits:%u\n", i, text_cache[i].text, text_cache[i].hits);
+        printf("(%d) %s. hits:%u\n", i, text_cache[i].text, text_cache[i].hits);
     }
     printf("not hit text num: %u, not hit font num: %u\n", total_not_hit_text_cache_num, total_not_hit_font_cache_num);
 }
