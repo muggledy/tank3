@@ -16,6 +16,7 @@ typedef struct __attribute__((packed)) {
 typedef Vector2 Point;
 
 #define POS(point) point.x,point.y
+#define POSPTR(point) point->x,point->y
 
 typedef struct __attribute__((packed)) {
 	Point lefttop;
@@ -78,6 +79,11 @@ typedef struct _Tank {
 #define TANK_DYING 0x00000002
 #define TANK_DEAD  0x00000004
     tk_uint32_t flags;
+#define COLLISION_FRONT 0x01
+#define COLLISION_BACK  0x02
+#define COLLISION_LEFT  0x04
+#define COLLISION_RIGHT 0x08
+    tk_uint8_t collision_flag; //碰撞方位标记
     void *basic_color; //基本颜色
     ExplodeEffect explode_effect; //爆炸效果
 #define TANK_ROLE_SELF  0
@@ -110,10 +116,22 @@ extern GameState tk_shared_game_state;
 #define mytankptr (tk_shared_game_state.my_tank)
 #define RENDER_FPS_MS 50
 
+typedef struct {
+    Point start_point; // pos起点
+    Grid current_grid; // 当前pos所处网格
+    tk_float32_t angle_deg; // 射线方向角度（正北:=0）
+    /*above is input param, below is output*/
+    Point intersection_dot; // 射线与当前网格边框的交点
+    Grid next_grid; // 射线射入的下一个网格（如果交点所在边框未被打通，则下一个网格还是当前网格，此时出现墙壁/镜面反射，reflect_angle_deg才有值/有意义）
+    double k; // 射线斜率
+    tk_float32_t reflect_angle_deg; // 镜面反射后的方向角度
+    tk_uint8_t terminate_flag; // 是否终止反射探测流程
+} Ray_Intersection_Dot_Info;
+
 static void print_key_value(KeyValue *v) {
-    // if (!DEBUG_TEST) {
-    //     return;
-    // }
+    if (!DEBUG_TEST) {
+        return;
+    }
     if (!v /*|| ((v->mask) == 0)*/) {
         return;
     }
@@ -150,5 +168,7 @@ extern Point get_random_grid_pos_for_tank();
 extern void handle_key(Tank *tank, KeyValue *key_value);
 
 extern Point rotate_point(const Point *point, tk_float32_t angle, const Point *pivot);
+extern void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info);
+extern Grid get_grid_by_tank_position(Point *pos);
 
 #endif

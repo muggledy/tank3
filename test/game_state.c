@@ -265,6 +265,389 @@ Point get_pos_by_grid(Grid *grid, int pos_dir) {
     }
 }
 
+// 计算斜率，角度输入范围 0~360（正北为0°，顺时针增加）
+double calculate_slope(double theta_degrees) {
+    // 转换为数学标准角度（正东为0°，逆时针增加）
+    double alpha_degrees = 90.0 - theta_degrees;
+
+    // 处理垂直情况（0°或180°，斜率不存在）
+    if (fabs(fmod(theta_degrees, 180.0)) < 1e-6) {
+        return INFINITY; // 或 NAN，表示斜率不存在
+    }
+
+    // 转换为弧度并计算 tan
+    double alpha_radians = alpha_degrees * (M_PI / 180.0);
+    double slope = tan(alpha_radians);
+
+    // 处理浮点精度问题（如 tan(90°) 可能返回极大值）
+    if (fabs(slope) > 1e10) {
+        return INFINITY; // 视为垂直线
+    }
+
+    return slope;
+}
+/*
+int main() {
+    double theta;
+    printf("请输入角度（0~360°，正北为0°）：");
+    scanf("%lf", &theta);
+
+    double slope = calculate_slope(theta);
+
+    if (isinf(slope)) {
+        printf("斜率不存在（垂直线）\n");
+    } else {
+        printf("斜率 k = %lf\n", slope);
+    }
+
+    return 0;
+}
+*/
+
+// 给定pos起点、方向(角度)，计算从起点射出去的线与pos所在网格的交点，以及确认下一个网格
+void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
+    Point p;
+    Grid g;
+    double k0, k1;
+    if(info->angle_deg >= 360) {
+        info->angle_deg -= 360;
+    }
+    tk_debug_internal(1, "get_ray_intersection_dot_with_grid: start(%f,%f), angle_deg(%f), grid(%d,%d)\n", 
+        POS(info->start_point), info->angle_deg, info->current_grid.x, info->current_grid.y);
+    if (info->angle_deg == 0) { // 射线垂直向上
+        info->k = INFINITY;
+        p = get_pos_by_grid(&info->current_grid, 0);
+        info->intersection_dot = (Point){info->start_point.x, p.y};
+        if (info->current_grid.y == 0) { // 当前网格是最上一层网格，必定反射，射线转而垂直向下
+            info->next_grid = info->current_grid;
+            info->reflect_angle_deg = 180;
+        } else {
+            g.x = info->current_grid.x;
+            g.y = info->current_grid.y-1;
+            if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与上一层网格之间打通，射线射入上一层网格中
+                info->next_grid = g;
+            } else { // 当前网格与上一层网格之间未打通，垂直反射
+                info->next_grid = info->current_grid;
+                info->reflect_angle_deg = 180;
+            }
+        }
+        tk_debug_internal(1, "result(0): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
+            POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, info->reflect_angle_deg);
+    } else if (info->angle_deg == 90) { // 射线水平向右
+        info->k = 0;
+        p = get_pos_by_grid(&info->current_grid, 1);
+        info->intersection_dot = (Point){p.x, info->start_point.y};
+        if ((info->current_grid.x+1) == HORIZON_GRID_NUMBER) { // 当前网格是最右一列网格，必定反射，射线转而水平向左
+            info->next_grid = info->current_grid;
+            info->reflect_angle_deg = 270;
+        } else {
+            g.x = info->current_grid.x+1;
+            g.y = info->current_grid.y;
+            if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与右侧网格之间打通，射线射入右侧网格中
+                info->next_grid = g;
+            } else { // 当前网格与右侧网格之间未打通，水平反射
+                info->next_grid = info->current_grid;
+                info->reflect_angle_deg = 270;
+            }
+        }
+        tk_debug_internal(1, "result(1): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
+            POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, info->reflect_angle_deg);
+    } else if (info->angle_deg == 180) { // 射线垂直向下
+        info->k = INFINITY;
+        p = get_pos_by_grid(&info->current_grid, 3);
+        info->intersection_dot = (Point){info->start_point.x, p.y};
+        if ((info->current_grid.y+1) == VERTICAL_GRID_NUMBER) { // 当前网格是最下一层网格，必定反射，射线转而垂直向上
+            info->next_grid = info->current_grid;
+            info->reflect_angle_deg = 0;
+        } else {
+            g.x = info->current_grid.x;
+            g.y = info->current_grid.y+1;
+            if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与下一层网格之间打通，射线射入下一层网格中
+                info->next_grid = g;
+            } else { // 当前网格与下一层网格之间未打通，垂直反射
+                info->next_grid = info->current_grid;
+                info->reflect_angle_deg = 0;
+            }
+        }
+        tk_debug_internal(1, "result(2): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
+            POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, info->reflect_angle_deg);
+    } else if (info->angle_deg == 270) {
+        info->k = 0;
+        p = get_pos_by_grid(&info->current_grid, 2);
+        info->intersection_dot = (Point){p.x, info->start_point.y};
+        if (info->current_grid.x == 0) { // 当前网格是最左一列网格，必定反射，射线转而水平向右
+            info->next_grid = info->current_grid;
+            info->reflect_angle_deg = 90;
+        } else {
+            g.x = info->current_grid.x-1;
+            g.y = info->current_grid.y;
+            if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与左侧网格之间打通，射线射入左侧网格中
+                info->next_grid = g;
+            } else { // 当前网格与左侧网格之间未打通，水平反射
+                info->next_grid = info->current_grid;
+                info->reflect_angle_deg = 90;
+            }
+        }
+        tk_debug_internal(1, "result(3): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
+            POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, info->reflect_angle_deg);
+    } else {
+        info->k = k1 = calculate_slope(info->angle_deg);
+        if ((info->angle_deg > 0) && (info->angle_deg < 90)) { // k1 > 0
+            p = get_pos_by_grid(&info->current_grid, 1);
+            k0 = (info->start_point.y - p.y) / (p.x - info->start_point.x);
+            if (k1 > k0) { // 射线与当前网格的上边框相交
+                info->intersection_dot = (Point){info->start_point.x+((info->start_point.y-p.y)/k1), p.y};
+                if (info->current_grid.y == 0) { // 与最上层墙壁发生镜面反射
+                    info->next_grid = info->current_grid;
+                    info->reflect_angle_deg = 180 - info->angle_deg;
+                } else {
+                    g.x = info->current_grid.x;
+                    g.y = info->current_grid.y-1;
+                    if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与上一层网格之间打通，射线射入上一层网格中
+                        info->next_grid = g;
+                    } else { // 当前网格与上一层网格之间未打通，镜面反射
+                        info->next_grid = info->current_grid;
+                        info->reflect_angle_deg = 180 - info->angle_deg;
+                    }
+                }
+                tk_debug_internal(1, "result(4): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            } else if (k1 < k0) { // 射线与当前网格的右边框相交
+                info->intersection_dot = (Point){p.x, info->start_point.y-(k1*(p.x-info->start_point.x))};
+                if ((info->current_grid.x+1) == HORIZON_GRID_NUMBER) { // 与最右侧墙壁发生镜面反射
+                    info->next_grid = info->current_grid;
+                    info->reflect_angle_deg = 360 - info->angle_deg;
+                } else {
+                    g.x = info->current_grid.x+1;
+                    g.y = info->current_grid.y;
+                    if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与右侧网格之间打通，射线射入右侧网格中
+                        info->next_grid = g;
+                    } else { // 当前网格与右侧网格之间未打通，镜面反射
+                        info->next_grid = info->current_grid;
+                        info->reflect_angle_deg = 360 - info->angle_deg;
+                    }
+                }
+                tk_debug_internal(1, "result(5): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            } else { // 正好射入右上角
+                int connect1, connect2; // 与上侧/右侧网格的连通性
+                if (info->current_grid.y == 0) {
+                    connect1 = 0;
+                } else {
+                    g.x = info->current_grid.x;
+                    g.y = info->current_grid.y-1;
+                    connect1 = is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g);
+                }
+                if ((info->current_grid.x+1) == HORIZON_GRID_NUMBER) {
+                    connect2 = 0;
+                } else {
+                    g.x = info->current_grid.x+1;
+                    g.y = info->current_grid.y;
+                    connect2 = is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g);
+                }
+                if (!connect1 || !connect2) { // 右上角两边存在至少一堵墙，则终止，否则直接射入右上角对角相连的网格
+                    info->terminate_flag = 1;
+                } else {
+                    info->intersection_dot = get_pos_by_grid(&info->current_grid, 1);
+                    info->next_grid.x = info->current_grid.x+1;
+                    info->next_grid.y = info->current_grid.y-1;
+                }
+                tk_debug_internal(1, "result(1-0): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            }
+        } else if ((info->angle_deg > 90) && (info->angle_deg < 180)) { // k1 < 0
+            p = get_pos_by_grid(&info->current_grid, 3);
+            k0 = -((p.y - info->start_point.y) / (p.x - info->start_point.x));
+            if (k1 < k0) { // 射线与当前网格的下边框相交
+                info->intersection_dot = (Point){info->start_point.x+((info->start_point.y-p.y)/k1), p.y};
+                if ((info->current_grid.y+1) == VERTICAL_GRID_NUMBER) { // 与最下层墙壁发生镜面反射
+                    info->next_grid = info->current_grid;
+                    info->reflect_angle_deg = 180 - info->angle_deg;
+                } else {
+                    g.x = info->current_grid.x;
+                    g.y = info->current_grid.y+1;
+                    if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与下一层网格之间打通，射线射入下一层网格中
+                        info->next_grid = g;
+                    } else { // 当前网格与下一层网格之间未打通，镜面反射
+                        info->next_grid = info->current_grid;
+                        info->reflect_angle_deg = 180 - info->angle_deg;
+                    }
+                }
+                tk_debug_internal(1, "result(6): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            } else if (k1 > k0) { // 射线与当前网格的右边框相交
+                info->intersection_dot = (Point){p.x, info->start_point.y+(k1*(info->start_point.x-p.x))};
+                if ((info->current_grid.x+1) == HORIZON_GRID_NUMBER) { // 与最右侧墙壁发生镜面反射
+                    info->next_grid = info->current_grid;
+                    info->reflect_angle_deg = 360 - info->angle_deg;
+                } else {
+                    g.x = info->current_grid.x+1;
+                    g.y = info->current_grid.y;
+                    if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与右侧网格之间打通，射线射入右侧网格中
+                        info->next_grid = g;
+                    } else { // 当前网格与右侧网格之间未打通，镜面反射
+                        info->next_grid = info->current_grid;
+                        info->reflect_angle_deg = 360 - info->angle_deg;
+                    }
+                }
+                tk_debug_internal(1, "result(7): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            } else { // 正好射入右下角
+                int connect1, connect2; // 与下侧/右侧网格的连通性
+                if ((info->current_grid.y+1) == VERTICAL_GRID_NUMBER) {
+                    connect1 = 0;
+                } else {
+                    g.x = info->current_grid.x;
+                    g.y = info->current_grid.y+1;
+                    connect1 = is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g);
+                }
+                if ((info->current_grid.x+1) == HORIZON_GRID_NUMBER) {
+                    connect2 = 0;
+                } else {
+                    g.x = info->current_grid.x+1;
+                    g.y = info->current_grid.y;
+                    connect2 = is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g);
+                }
+                if (!connect1 || !connect2) { // 右下角两边存在至少一堵墙，则终止，否则直接射入右下角对角相连的网格
+                    info->terminate_flag = 1;
+                } else {
+                    info->intersection_dot = get_pos_by_grid(&info->current_grid, 3);
+                    info->next_grid.x = info->current_grid.x+1;
+                    info->next_grid.y = info->current_grid.y+1;
+                }
+                tk_debug_internal(1, "result(1-1): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            }
+        } else if ((info->angle_deg > 180) && (info->angle_deg < 270)) { // k1 > 0
+            p = get_pos_by_grid(&info->current_grid, 2);
+            k0 = (p.y - info->start_point.y) / (info->start_point.x - p.x);
+            if (k1 > k0) { // 射线与当前网格的下边框相交
+                info->intersection_dot = (Point){info->start_point.x-((p.y-info->start_point.y)/k1), p.y};
+                if ((info->current_grid.y+1) == VERTICAL_GRID_NUMBER) { // 与最下层墙壁发生镜面反射
+                    info->next_grid = info->current_grid;
+                    info->reflect_angle_deg = 540 - info->angle_deg;
+                } else {
+                    g.x = info->current_grid.x;
+                    g.y = info->current_grid.y+1;
+                    if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与下一层网格之间打通，射线射入下一层网格中
+                        info->next_grid = g;
+                    } else { // 当前网格与下一层网格之间未打通，镜面反射
+                        info->next_grid = info->current_grid;
+                        info->reflect_angle_deg = 540 - info->angle_deg;
+                    }
+                }
+                tk_debug_internal(1, "result(8): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            } else if (k1 < k0) { // 射线与当前网格的左边框相交
+                info->intersection_dot = (Point){p.x, info->start_point.y+(k1*(info->start_point.x-p.x))};
+                if (info->current_grid.x == 0) { // 与最左侧墙壁发生镜面反射
+                    info->next_grid = info->current_grid;
+                    info->reflect_angle_deg = 360 - info->angle_deg;
+                } else {
+                    g.x = info->current_grid.x-1;
+                    g.y = info->current_grid.y;
+                    if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与左侧网格之间打通，射线射入左侧网格中
+                        info->next_grid = g;
+                    } else { // 当前网格与左侧网格之间未打通，镜面反射
+                        info->next_grid = info->current_grid;
+                        info->reflect_angle_deg = 360 - info->angle_deg;
+                    }
+                }
+                tk_debug_internal(1, "result(9): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            } else { // 正好射入左下角
+                int connect1, connect2; // 与下侧/左侧网格的连通性
+                if ((info->current_grid.y+1) == VERTICAL_GRID_NUMBER) {
+                    connect1 = 0;
+                } else {
+                    g.x = info->current_grid.x;
+                    g.y = info->current_grid.y+1;
+                    connect1 = is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g);
+                }
+                if (info->current_grid.x == 0) {
+                    connect2 = 0;
+                } else {
+                    g.x = info->current_grid.x-1;
+                    g.y = info->current_grid.y;
+                    connect2 = is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g);
+                }
+                if (!connect1 || !connect2) { // 左下角两边存在至少一堵墙，则终止，否则直接射入左下角对角相连的网格
+                    info->terminate_flag = 1;
+                } else {
+                    info->intersection_dot = get_pos_by_grid(&info->current_grid, 2);
+                    info->next_grid.x = info->current_grid.x-1;
+                    info->next_grid.y = info->current_grid.y+1;
+                }
+                tk_debug_internal(1, "result(1-2): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            }
+        } else if ((info->angle_deg > 270) && (info->angle_deg < 360)) { // k1 < 0
+            p = get_pos_by_grid(&info->current_grid, 0);
+            k0 = -((info->start_point.y - p.y) / (info->start_point.x - p.x));
+            if (k1 < k0) { // 射线与当前网格的上边框相交
+                info->intersection_dot = (Point){info->start_point.x-((p.y-info->start_point.y)/k1), p.y};
+                if (info->current_grid.y == 0) { // 与最上层墙壁发生镜面反射
+                    info->next_grid = info->current_grid;
+                    info->reflect_angle_deg = 540 - info->angle_deg;
+                } else {
+                    g.x = info->current_grid.x;
+                    g.y = info->current_grid.y-1;
+                    if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与上一层网格之间打通，射线射入上一层网格中
+                        info->next_grid = g;
+                    } else { // 当前网格与上一层网格之间未打通，镜面反射
+                        info->next_grid = info->current_grid;
+                        info->reflect_angle_deg = 540 - info->angle_deg;
+                    }
+                }
+                tk_debug_internal(1, "result(10): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            } else if (k1 > k0) { // 射线与当前网格的左边框相交
+                info->intersection_dot = (Point){p.x, info->start_point.y-(k1*(p.x-info->start_point.x))};
+                if (info->current_grid.x == 0) { // 与最左侧墙壁发生镜面反射
+                    info->next_grid = info->current_grid;
+                    info->reflect_angle_deg = 360 - info->angle_deg;
+                } else {
+                    g.x = info->current_grid.x-1;
+                    g.y = info->current_grid.y;
+                    if (is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g)) { // 当前网格与左侧网格之间打通，射线射入左侧网格中
+                        info->next_grid = g;
+                    } else { // 当前网格与左侧网格之间未打通，镜面反射
+                        info->next_grid = info->current_grid;
+                        info->reflect_angle_deg = 360 - info->angle_deg;
+                    }
+                }
+                tk_debug_internal(1, "result(11): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            } else { // 正好射入左上角
+                int connect1, connect2; // 与上侧/左侧网格的连通性
+                if (info->current_grid.y == 0) {
+                    connect1 = 0;
+                } else {
+                    g.x = info->current_grid.x;
+                    g.y = info->current_grid.y-1;
+                    connect1 = is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g);
+                }
+                if (info->current_grid.x == 0) {
+                    connect2 = 0;
+                } else {
+                    g.x = info->current_grid.x-1;
+                    g.y = info->current_grid.y;
+                    connect2 = is_two_grids_connected(&tk_shared_game_state.maze, &info->current_grid, &g);
+                }
+                if (!connect1 || !connect2) { // 左上角两边存在至少一堵墙，则终止，否则直接射入左上角对角相连的网格
+                    info->terminate_flag = 1;
+                } else {
+                    info->intersection_dot = get_pos_by_grid(&info->current_grid, 0);
+                    info->next_grid.x = info->current_grid.x-1;
+                    info->next_grid.y = info->current_grid.y-1;
+                }
+                tk_debug_internal(1, "result(1-3): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                    POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
+            }
+        }
+    }
+}
+
 #define DOT_IS_ON_LINE    0
 #define DOT_LEFT_OF_LINE  1
 #define DOT_RIGHT_OF_LINE 2
@@ -291,6 +674,7 @@ static int is_two_pos_transfer_through_wall(Point *pos1, Point *pos2) {
     Grid grid3, grid4;
     Point dot0;
     int t = 0;
+    Point *p = NULL;
 
     // tk_debug_internal(1, "grid1:(%d,%d), grid2:(%d,%d)\n", grid1.x, grid1.y, grid2.x, grid2.y);
     if (!is_grid_valid(&grid1) || !is_grid_valid(&grid2)) { // invalid意味着网格已超出地图可视区域范围，也就是穿越了最外层一圈墙壁
@@ -311,6 +695,9 @@ static int is_two_pos_transfer_through_wall(Point *pos1, Point *pos2) {
                 /*grid2,grid3     grid1,grid3
                   grid4,grid1  => grid4,grid2*/
                 swap_two_grid(&grid1, &grid2);
+                p = pos1;
+                pos1 = pos2;
+                pos2 = p;
             } else {
                 /*grid1,grid3
                   grid4,grid2*/
@@ -322,12 +709,22 @@ static int is_two_pos_transfer_through_wall(Point *pos1, Point *pos2) {
             if (t == DOT_LEFT_OF_LINE) { // dot0在线pos1-pos2的上方
                 if (!is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid4) 
                     || !is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid4)) {
+                    tk_debug_internal(DEBUG_TEST, ">1 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
+                        POS(dot0), POSPTR(pos1), POSPTR(pos2), 
+                        is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid4), 
+                        is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid4), 
+                        grid1.x, grid1.y, grid2.x, grid2.y, grid3.x, grid3.y, grid4.x, grid4.y);
                     return 1;
                 }
                 return 0;
             } else if (t == DOT_RIGHT_OF_LINE) { // dot0在线pos1-pos2的下方
                 if (!is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid3) 
                     || !is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid3)) {
+                    tk_debug_internal(DEBUG_TEST, ">2 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
+                        POS(dot0), POSPTR(pos1), POSPTR(pos2), 
+                        is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid3), 
+                        is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid3), 
+                        grid1.x, grid1.y, grid2.x, grid2.y, grid3.x, grid3.y, grid4.x, grid4.y);
                     return 1;
                 }
                 return 0;
@@ -342,6 +739,9 @@ static int is_two_pos_transfer_through_wall(Point *pos1, Point *pos2) {
                 /*grid3,grid2     grid3,grid1
                   grid1,grid4  => grid2,grid4*/
                 swap_two_grid(&grid1, &grid2);
+                p = pos1;
+                pos1 = pos2;
+                pos2 = p;
             }
             grid3 = (Grid){grid2.x, grid1.y};
             grid4 = (Grid){grid1.x, grid2.y};
@@ -350,12 +750,22 @@ static int is_two_pos_transfer_through_wall(Point *pos1, Point *pos2) {
             if (t == DOT_LEFT_OF_LINE) { // dot0在线pos1-pos2的下方
                 if (!is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid3) 
                     || !is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid3)) {
+                    tk_debug_internal(DEBUG_TEST, ">3 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
+                        POS(dot0), POSPTR(pos1), POSPTR(pos2), 
+                        is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid3), 
+                        is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid3), 
+                        grid1.x, grid1.y, grid2.x, grid2.y, grid3.x, grid3.y, grid4.x, grid4.y);
                     return 1;
                 }
                 return 0;
             } else if (t == DOT_RIGHT_OF_LINE) { // dot0在线pos1-pos2的上方
                 if (!is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid4) 
                     || !is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid4)) {
+                    tk_debug_internal(DEBUG_TEST, ">4 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
+                        POS(dot0), POSPTR(pos1), POSPTR(pos2), 
+                        is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid4), 
+                        is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid4), 
+                        grid1.x, grid1.y, grid2.x, grid2.y, grid3.x, grid3.y, grid4.x, grid4.y);
                     return 1;
                 }
                 return 0;
@@ -423,26 +833,31 @@ void handle_key(Tank *tank, KeyValue *key_value) {
     // 基于最新位置、角度计算出坦克轮廓边界，然后对轮廓做碰撞检查，没有发生碰撞，则本次移动、旋转动作是合法的，否则不合法需撤回本次移动
     calculate_tank_outline(&new_position, TANK_LENGTH, TANK_WIDTH+4, corrected_angle_deg, &outline); //+4是履带额外的宽度
 
-    // 计算坦克轮廓矩形四个角所处的网格
-    Grid grid0 = get_grid_by_tank_position(&outline.righttop);
-    Grid grid1 = get_grid_by_tank_position(&outline.rightbottom);
-    Grid grid2 = get_grid_by_tank_position(&outline.leftbottom);
-    Grid grid3 = get_grid_by_tank_position(&outline.lefttop);
-    tk_debug_internal(DEBUG_TEST, "grid:(%d, %d)/%d, (%d, %d)/%d, (%d, %d)/%d, (%d, %d)/%d\n", 
-        POS(grid0), grid_id(&grid0), POS(grid1), grid_id(&grid1), POS(grid2), grid_id(&grid2), POS(grid3), grid_id(&grid3));
+    // // 计算坦克轮廓矩形四个角所处的网格
+    // Grid grid0 = get_grid_by_tank_position(&outline.righttop);
+    // Grid grid1 = get_grid_by_tank_position(&outline.rightbottom);
+    // Grid grid2 = get_grid_by_tank_position(&outline.leftbottom);
+    // Grid grid3 = get_grid_by_tank_position(&outline.lefttop);
+    // tk_debug_internal(DEBUG_TEST, "grid:(%d, %d)/%d, (%d, %d)/%d, (%d, %d)/%d, (%d, %d)/%d\n", 
+    //     POS(grid0), grid_id(&grid0), POS(grid1), grid_id(&grid1), POS(grid2), grid_id(&grid2), POS(grid3), grid_id(&grid3));
 
+    tank->collision_flag = 0;
     if (is_two_pos_transfer_through_wall(&outline.righttop, &outline.rightbottom)) {
-        tk_debug_internal(1, "前方发生碰撞\n");
+        tk_debug_internal(DEBUG_TEST, "前方发生碰撞\n");
+        SET_FLAG(tank, collision_flag, COLLISION_FRONT);
     } else if (is_two_pos_transfer_through_wall(&outline.lefttop, &outline.righttop)) {
-        tk_debug_internal(1, "左侧发生碰撞\n");
+        tk_debug_internal(DEBUG_TEST, "左侧发生碰撞\n");
+        SET_FLAG(tank, collision_flag, COLLISION_LEFT);
     } else if (is_two_pos_transfer_through_wall(&outline.rightbottom, &outline.leftbottom)) {
-        tk_debug_internal(1, "右侧发生碰撞\n");
+        tk_debug_internal(DEBUG_TEST, "右侧发生碰撞\n");
+        SET_FLAG(tank, collision_flag, COLLISION_RIGHT);
     } else if (is_two_pos_transfer_through_wall(&outline.leftbottom, &outline.lefttop)) {
-        tk_debug_internal(1, "后方发生碰撞\n");
+        tk_debug_internal(DEBUG_TEST, "后方发生碰撞\n");
+        SET_FLAG(tank, collision_flag, COLLISION_BACK);
     } else { // 未发生碰撞
         tank->position = new_position;
         tank->angle_deg = new_angle_deg;
         // tank->outline = outline;
     }
-    tank->outline = outline;
+    tank->outline = outline; // 将发生碰撞的最新轮廓绘制出来用于debug
 }

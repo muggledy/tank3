@@ -245,7 +245,7 @@ static void draw_arrow_head(SDL_Renderer* renderer, Point end, float angle) {
 }
 
 // 绘制坦克坐标系（北轴和右轴）
-static void draw_tank_coordinates(SDL_Renderer* renderer, const Tank* tank) {
+static void draw_tank_coordinates(SDL_Renderer* renderer, Tank* tank) {
     if (!renderer || !tank) return;
 
     // 设置绘制颜色
@@ -286,10 +286,33 @@ static void draw_tank_coordinates(SDL_Renderer* renderer, const Tank* tank) {
         .x = origin.x + SCOPE_LEN * cosf(tank_angle_rad),  // 长度SCOPE_LEN像素
         .y = origin.y + SCOPE_LEN * sinf(tank_angle_rad)
     };
-    SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_BLACK), 0.3));
-    SDL_RenderDrawLine(renderer, origin.x, origin.y, tank_angle_end.x, tank_angle_end.y);
 
-#if 1
+    SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_BLACK), 0.3));
+#if 0
+    SDL_RenderDrawLine(renderer, origin.x, origin.y, tank_angle_end.x, tank_angle_end.y);
+#else
+    // 绘制坦克前进方向轴（遇墙壁自动反射版本）
+    Ray_Intersection_Dot_Info info;
+    info.start_point = origin;
+    info.angle_deg = tank->angle_deg;
+    info.current_grid = get_grid_by_tank_position(&tank->position);
+    info.terminate_flag = 0;
+    tk_debug_internal(1, "draw_tank_coordinates...\n");
+    for (int i=0; i<6; i++) { // 至多反射6次
+        get_ray_intersection_dot_with_grid(&info);
+        if (info.terminate_flag) {
+            break;
+        }
+        SDL_RenderDrawLine(renderer, POS(info.start_point), POS(info.intersection_dot));
+        info.start_point = info.intersection_dot;
+        if ((info.current_grid.x == info.next_grid.x) && (info.current_grid.y == info.next_grid.y)) {
+            info.angle_deg = info.reflect_angle_deg;
+        }
+        info.current_grid = info.next_grid;
+    }
+#endif
+
+#if 1 // 绘制前进方向的角度文本值
     Point text_pos = get_line_k_center(&origin, &tank_angle_end, 0.2);
     if (!tank_font8) {
         tank_font8 = load_cached_font(DEFAULT_FONT_PATH, 8);
@@ -615,10 +638,40 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
     tank_font8 = NULL;
 
     // 绘制坦克外轮廓边界（仅用于测试）
-#if 1
+#if 0
     SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_BLACK), 1));
     draw_rectangle(renderer, &tank->outline);
 #endif
+}
+
+// 绘制碰撞预警特效
+void draw_collision_warning(SDL_Renderer* renderer, Tank* tank) {
+    if (!renderer || !tank) return;
+    if (tank->collision_flag == 0) return;
+    if (!TST_FLAG(tank, flags, TANK_ALIVE)) return;
+
+    // 设置预警颜色（半透明红色，TODO: 碰撞强度影响透明度）
+    Uint8 alpha = (Uint8)(255 * 0.5);
+    Point p;
+    SDL_Color color = {255, 0, 0, alpha};
+
+    // 根据碰撞方向绘制相应的预警区域
+    if (TST_FLAG(tank, collision_flag, COLLISION_FRONT)) {
+        p = get_line_center(&tank->outline.righttop, &tank->outline.rightbottom);
+        draw_solid_rectangle(renderer, &p, 30, 5, tank->angle_deg, &color);
+    }
+    if (TST_FLAG(tank, collision_flag, COLLISION_BACK)) {
+        p = get_line_center(&tank->outline.lefttop, &tank->outline.leftbottom);
+        draw_solid_rectangle(renderer, &p, 30, 5, tank->angle_deg, &color);
+    }
+    if (TST_FLAG(tank, collision_flag, COLLISION_LEFT)) {
+        p = get_line_center(&tank->outline.lefttop, &tank->outline.righttop);
+        draw_solid_rectangle(renderer, &p, 30, 5, tank->angle_deg+90, &color);
+    }
+    if (TST_FLAG(tank, collision_flag, COLLISION_RIGHT)) {
+        p = get_line_center(&tank->outline.rightbottom, &tank->outline.leftbottom);
+        draw_solid_rectangle(renderer, &p, 30, 5, tank->angle_deg+90, &color);
+    }
 }
 
 // 对目标位置pos1进行偏移处理（pos2为偏移量）
@@ -643,6 +696,7 @@ void render_gui_scene() {
     // 渲染坦克
     TAILQ_FOREACH(tank, &tk_shared_game_state.tank_list, chain) {
         draw_tank(tk_renderer, tank);
+        draw_collision_warning(tk_renderer, tank);
     }
 
     // 显示渲染内容
