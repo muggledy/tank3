@@ -1,6 +1,7 @@
 #include "event_queue.h"
 #include <string.h>
 #include <stdlib.h>
+#include "debug.h"
 
 Event* create_event(EventType type) {
     Event* event = (Event *)malloc(sizeof(Event));
@@ -52,6 +53,8 @@ void enqueue_event(EventQueue* queue, Event* event) {
 
     pthread_mutex_lock(&queue->mutex_lock);
     while (queue->count >= TK_EVENT_QUEUE_MAX_ITEM_NUM) {
+        tk_debug("警告：事件队列满！(GUI线程)正在等待队列空位的条件锁...\n"); // 当前队列缓存足够大，不可能发生。一旦发生，意味着GUI线程卡住，
+        // 这时候可以考虑不要等待条件锁，而是直接丢弃该事件（参考dequeue_event()增加wait参数），避免GUI线程卡死，确保GUI线程主循环能够继续运行下去
         pthread_cond_wait(&queue->space_available_condition, &queue->mutex_lock);
     }
 

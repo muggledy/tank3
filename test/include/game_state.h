@@ -55,9 +55,15 @@ typedef struct {
 // 炮弹结构
 typedef struct _Shell {
     tk_uint32_t id;
-    tk_uint32_t owner_id;  // 发射者ID
-    Vector2 position;
-    Vector2 velocity;
+    // tk_uint32_t owner_id;  // 发射者ID
+    void *tank_owner; // 发射者
+#define SHELL_RADIUS_LENGTH 3 // 炮弹半径
+    Point position;
+    tk_float32_t angle_deg; // 运动方向（同Tank->angle_deg）
+    tk_float32_t speed;     // 移动速度
+#define SHELL_INIT_SPEED 6
+    tk_uint8_t ttl; // 碰撞墙壁的次数，达到阈值(SHELL_COLLISION_MAX_NUM)则湮灭
+#define SHELL_COLLISION_MAX_NUM 6
     TAILQ_ENTRY(_Shell) chain;
 } Shell;
 
@@ -89,9 +95,10 @@ typedef struct _Tank {
 #define TANK_ROLE_SELF  0
 #define TANK_ROLE_ENEMY 1
     tk_uint8_t role;
-#define DEFAULT_TANK_SHELLS_MAX_NUM 3
+#define DEFAULT_TANK_SHELLS_MAX_NUM 10
     tk_uint8_t max_shell_num;
-    Rectangle outline; // 坦克轮廓边界（简化为矩形）
+    Rectangle outline; // 坦克轮廓边界（简化为矩形），用于碰撞检测，某一帧中，其可能已经侵入墙体
+    Rectangle practical_outline; // 实际的轮廓边界，未发生碰撞的轮廓
     TAILQ_HEAD(_tank_shells_list, _Shell) shell_list;
     TAILQ_ENTRY(_Tank) chain;
 } Tank;
@@ -161,14 +168,18 @@ extern void cleanup_idpool();
 extern void init_game_state();
 extern void cleanup_game_state();
 extern Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role);
-extern void delete_tank(Tank *tank);
+extern void delete_tank(Tank *tank, int dereference);
 extern Point get_random_grid_pos();
 extern Point get_random_grid_pos_for_tank();
 
 extern void handle_key(Tank *tank, KeyValue *key_value);
 
+extern Point get_line_center(const Point *p1, const Point *p2);
 extern Point rotate_point(const Point *point, tk_float32_t angle, const Point *pivot);
 extern void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info);
 extern Grid get_grid_by_tank_position(Point *pos);
+extern Shell* create_shell_for_tank(Tank *tank);
+extern void delete_shell(Shell *shell, int dereference);
+extern void update_all_shell_movement_position();
 
 #endif

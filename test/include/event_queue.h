@@ -22,6 +22,7 @@ typedef enum {
 #define KEY_S KEY_BACKWARD
 #define KEY_A KEY_LEFT
 #define KEY_D KEY_RIGHT
+    KEY_SPACE,
     KEY_ESC
 } KeyCode;
 

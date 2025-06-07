@@ -204,13 +204,6 @@ Rectangle draw_solid_rectangle(SDL_Renderer* renderer, const Point *center,
     return rect;
 }
 
-static Point get_line_center(const Point *p1, const Point *p2) {
-    Point center;
-    center.x = ((p1->x + p2->x) / 2);
-    center.y = ((p1->y + p2->y) / 2);
-    return center;
-}
-
 static Point get_line_k_center(const Point *p1, const Point *p2, double k) { //(k_center - p1) / (p2 - p1) = k
     Point k_center;
     k_center.x = ((p2->x - p1->x) * k + p1->x);
@@ -297,7 +290,7 @@ static void draw_tank_coordinates(SDL_Renderer* renderer, Tank* tank) {
     info.angle_deg = tank->angle_deg;
     info.current_grid = get_grid_by_tank_position(&tank->position);
     info.terminate_flag = 0;
-    tk_debug_internal(1, "draw_tank_coordinates...\n");
+    tk_debug_internal(DEBUG_TEST, "draw_tank_coordinates...\n");
     for (int i=0; i<6; i++) { // 至多反射6次
         get_ray_intersection_dot_with_grid(&info);
         if (info.terminate_flag) {
@@ -637,7 +630,7 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
     }
     tank_font8 = NULL;
 
-    // 绘制坦克外轮廓边界（仅用于测试）
+    // 绘制坦克外轮廓边界（仅用于测试碰撞检测功能）
 #if 0
     SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM2(ID2COLORPTR(TK_BLACK), 1));
     draw_rectangle(renderer, &tank->outline);
@@ -674,6 +667,23 @@ void draw_collision_warning(SDL_Renderer* renderer, Tank* tank) {
     }
 }
 
+void draw_solid_circle(SDL_Renderer* renderer, tk_float32_t x0, tk_float32_t y0, tk_float32_t r, SDL_Color *color) {
+    SDL_SetRenderDrawColor(renderer, COLORPTR2PARAM(color));
+    
+    for (int y = -r; y <= r; y++) {
+        int dy = y * y;
+        int max_x = (int)sqrt(r*r - dy);
+        for (int x = -max_x; x <= max_x; x++) {
+            SDL_RenderDrawPoint(renderer, x0 + x, y0 + y);
+        }
+    }
+}
+
+// 绘制炮弹
+void draw_shell(SDL_Renderer* renderer, Shell *shell) {
+    draw_solid_circle(renderer, POS(shell->position), SHELL_RADIUS_LENGTH, (SDL_Color*)(((Tank*)(shell->tank_owner))->basic_color));
+}
+
 // 对目标位置pos1进行偏移处理（pos2为偏移量）
 #define POS_OFFSET(pos1, pos2) (pos1).x+(pos2).x,(pos1).y+(pos2).y
 
@@ -681,6 +691,7 @@ void draw_collision_warning(SDL_Renderer* renderer, Tank* tank) {
 void render_gui_scene() {
     // tk_debug("render_gui_scene...\n");
     Tank *tank = NULL;
+    Shell *shell = NULL;
 
     // 清空屏幕
     SDL_SetRenderDrawColor(tk_renderer, COLOR2PARAM(ID2COLOR(TK_WHITE)));
@@ -697,6 +708,9 @@ void render_gui_scene() {
     TAILQ_FOREACH(tank, &tk_shared_game_state.tank_list, chain) {
         draw_tank(tk_renderer, tank);
         draw_collision_warning(tk_renderer, tank);
+        TAILQ_FOREACH(shell, &tank->shell_list, chain) {
+            draw_shell(tk_renderer, shell);
+        }
     }
 
     // 显示渲染内容
@@ -778,6 +792,7 @@ void send_key_to_control_thread(int key_type, int key_value) {
 
 #define OP_LIST_LEN 50
 static int op_cursor = OP_LIST_LEN-1;
+#define OP_NULL     0
 #define OP_K_W_DOWN 1
 #define OP_K_S_DOWN 2
 #define OP_K_A_DOWN 3
@@ -786,6 +801,7 @@ static int op_cursor = OP_LIST_LEN-1;
 #define OP_K_S_UP   6
 #define OP_K_A_UP   7
 #define OP_K_D_UP   8
+#define OP_K_SPACE_DOWN 9
 static int op_list[OP_LIST_LEN];
 
 static void insert_op_list(int op) {
@@ -832,6 +848,7 @@ void gui_main_loop() {
                 // stop_event_loop();
                 notify_control_thread_exit();
             } else if (e.type == SDL_KEYDOWN) { // 处理键盘事件
+                // printf(">>> key %d down\n", e.key.keysym.sym);
                 if (mytankptr->health > 0) {
                     mytankptr->health--;
                 } else {
@@ -866,6 +883,9 @@ void gui_main_loop() {
                         insert_op_list(OP_K_D_DOWN);
                         PLAY_MOVE_MUSIC();
                         SET_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE);
+                        break;
+                    case SDLK_SPACE: // 发射子弹
+                        insert_op_list(OP_K_SPACE_DOWN);
                         break;
                 }
             } else if (e.type == SDL_KEYUP) {
@@ -915,9 +935,12 @@ void gui_main_loop() {
                 send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_A);
             } else if (OP_K_D_UP == op) {
                 send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_D);
+            } else if (OP_K_SPACE_DOWN == op) {
+                send_key_to_control_thread(EVENT_KEY_PRESS, KEY_SPACE);
             }
         }
-        if ((get_op_list_num() == 0) && (tk_key_value.mask != 0)) {
+        if ((get_op_list_num() == 0) && (tk_key_value.mask != 0) /*&& (tk_shared_game_state.game_time % 2 == 0) && 0*/) {
+            tk_debug_internal(1, "auto send key event(%u)\n", tk_shared_game_state.game_time);
             if (TST_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE)) {
                 send_key_to_control_thread(EVENT_KEY_PRESS, KEY_W);
             } else if (TST_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE)) {
