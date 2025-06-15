@@ -1075,8 +1075,32 @@ void update_one_shell_movement_position(Shell *shell) {
                     collide_wall_y = 1;
                 }
             }
-            tk_debug_internal(1, "current_grid(%d,%d), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
-                wall_x, wall_y, collide_wall_x, collide_wall_y);
+            /*特殊情况*/
+            if (!collide_wall_x && !collide_wall_y) {
+                if (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && (new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x) {
+                    tk_uint8_t hit_opposite_wall_x = !is_two_grids_connected(&tk_shared_game_state.maze, 
+                        &(Grid){current_grid.x+1, current_grid.y}, &(Grid){current_grid.x+1, current_grid.y-1});
+                    tk_uint8_t hit_opposite_wall_y = !is_two_grids_connected(&tk_shared_game_state.maze, 
+                        &(Grid){current_grid.x, current_grid.y-1}, &(Grid){current_grid.x+1, current_grid.y-1});
+                    if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
+                        goto out;
+                    } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x\n");
+                        collide_wall_x = 1;
+                    } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_y\n");
+                        collide_wall_y = 1;
+                    } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x & opposite_wall_y\n");
+                        collide_wall_x = 1;
+                        collide_wall_y = 1;
+                    } else {
+                        goto out;
+                    }
+                }
+            }
+            tk_debug_internal(1, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
+                POS(new_pos), wall_x, wall_y, collide_wall_x, collide_wall_y);
             if (collide_wall_x && collide_wall_y) { // 碰撞墙角
                 tk_debug_internal(1, "触碰墙角(假设上) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
@@ -1136,8 +1160,32 @@ void update_one_shell_movement_position(Shell *shell) {
                     collide_wall_y = 1;
                 }
             }
-            tk_debug_internal(1, "current_grid(%d,%d), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
-                wall_x, wall_y, collide_wall_x, collide_wall_y);
+            /*特殊情况*/
+            if (!collide_wall_x && !collide_wall_y) {
+                if (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && (new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) {
+                    tk_uint8_t hit_opposite_wall_x = !is_two_grids_connected(&tk_shared_game_state.maze, 
+                        &(Grid){current_grid.x+1, current_grid.y}, &(Grid){current_grid.x+1, current_grid.y+1});
+                    tk_uint8_t hit_opposite_wall_y = !is_two_grids_connected(&tk_shared_game_state.maze, 
+                        &(Grid){current_grid.x, current_grid.y+1}, &(Grid){current_grid.x+1, current_grid.y+1});
+                    if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
+                        goto out;
+                    } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x\n");
+                        collide_wall_x = 1;
+                    } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_y\n");
+                        collide_wall_y = 1;
+                    } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x & opposite_wall_y\n");
+                        collide_wall_x = 1;
+                        collide_wall_y = 1;
+                    } else {
+                        goto out;
+                    }
+                }
+            }
+            tk_debug_internal(1, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
+                POS(new_pos), wall_x, wall_y, collide_wall_x, collide_wall_y);
             if (collide_wall_x && collide_wall_y) {
                 tk_debug_internal(1, "触碰墙角(假设下) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
@@ -1197,8 +1245,32 @@ void update_one_shell_movement_position(Shell *shell) {
                     collide_wall_y = 1;
                 }
             }
-            tk_debug_internal(1, "current_grid(%d,%d), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
-                wall_x, wall_y, collide_wall_x, collide_wall_y);
+            /*特殊情况*/
+            if (!collide_wall_x && !collide_wall_y) {
+                if (((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y) && (new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) {
+                    tk_uint8_t hit_opposite_wall_x = !is_two_grids_connected(&tk_shared_game_state.maze, 
+                        &(Grid){current_grid.x-1, current_grid.y}, &(Grid){current_grid.x-1, current_grid.y+1});
+                    tk_uint8_t hit_opposite_wall_y = !is_two_grids_connected(&tk_shared_game_state.maze, 
+                        &(Grid){current_grid.x, current_grid.y+1}, &(Grid){current_grid.x-1, current_grid.y+1});
+                    if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
+                        goto out;
+                    } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x\n");
+                        collide_wall_x = 1;
+                    } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_y\n");
+                        collide_wall_y = 1;
+                    } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x & opposite_wall_y\n");
+                        collide_wall_x = 1;
+                        collide_wall_y = 1;
+                    } else {
+                        goto out;
+                    }
+                }
+            }
+            tk_debug_internal(1, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
+                POS(new_pos), wall_x, wall_y, collide_wall_x, collide_wall_y);
             if (collide_wall_x && collide_wall_y) {
                 tk_debug_internal(1, "触碰墙角(假设下) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
@@ -1258,8 +1330,32 @@ void update_one_shell_movement_position(Shell *shell) {
                     collide_wall_y = 1;
                 }
             }
-            tk_debug_internal(1, "current_grid(%d,%d), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
-                wall_x, wall_y, collide_wall_x, collide_wall_y);
+            /*特殊情况*/
+            if (!collide_wall_x && !collide_wall_y) {
+                if (((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y) && (new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x) {
+                    tk_uint8_t hit_opposite_wall_x = !is_two_grids_connected(&tk_shared_game_state.maze, 
+                        &(Grid){current_grid.x-1, current_grid.y}, &(Grid){current_grid.x-1, current_grid.y-1});
+                    tk_uint8_t hit_opposite_wall_y = !is_two_grids_connected(&tk_shared_game_state.maze, 
+                        &(Grid){current_grid.x, current_grid.y-1}, &(Grid){current_grid.x-1, current_grid.y-1});
+                    if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
+                        goto out;
+                    } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x\n");
+                        collide_wall_x = 1;
+                    } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_y\n");
+                        collide_wall_y = 1;
+                    } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
+                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x & opposite_wall_y\n");
+                        collide_wall_x = 1;
+                        collide_wall_y = 1;
+                    } else {
+                        goto out;
+                    }
+                }
+            }
+            tk_debug_internal(1, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
+                POS(new_pos), wall_x, wall_y, collide_wall_x, collide_wall_y);
             if (collide_wall_x && collide_wall_y) {
                 tk_debug_internal(1, "触碰墙角(假设上) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));

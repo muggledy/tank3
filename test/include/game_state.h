@@ -61,7 +61,7 @@ typedef struct _Shell {
     Point position;
     tk_float32_t angle_deg; // 运动方向（同Tank->angle_deg）
     tk_float32_t speed;     // 移动速度
-#define SHELL_INIT_SPEED 6
+#define SHELL_INIT_SPEED 9  // <=10
     tk_uint8_t ttl; // 碰撞墙壁的次数，达到阈值(SHELL_COLLISION_MAX_NUM)则湮灭
 #define SHELL_COLLISION_MAX_NUM 6
     TAILQ_ENTRY(_Shell) chain;
