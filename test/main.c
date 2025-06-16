@@ -1,8 +1,27 @@
+#define _GNU_SOURCE
 #include "global.h"
 #include "game_state.h"
 #include "gui_tank.h"
 #include "event_loop.h"
 #include "debug.h"
+#include <sched.h>
+
+// #define RUN_ON_MULTI_CORE // 设置了反而效果不好，因为明面上我只有三个线程（含主线程），但实际
+// 一些三方库隐含创建了多线程，因此本游戏实际涉及>3个线程，设置RUN_ON_MULTI_CORE会使得线程集中于两个核心上，
+// 不设置，Linux会动态平衡线程在不同核心上的负载，更均匀分布线程到>3个core上，以最大化利用多核CPU资源，
+// 避免某个核心过载
+
+void pin_thread_to_cpu(pthread_t thread, int cpu_id) {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);          // 清空 CPU 集合
+    CPU_SET(cpu_id, &cpuset);   // 绑定到指定 CPU
+
+    // 设置线程的 CPU 亲和性
+    int ret = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+    if (ret != 0) {
+        perror("pthread_setaffinity_np failed");
+    }
+}
 
 void* gui_thread(void* arg) {
     reset_debug_prefix("gui");
@@ -75,11 +94,21 @@ int main() {
 
     // 创建线程
     pthread_t control_tid, gui_tid;
+#if defined(RUN_ON_MULTI_CORE)
+    int cpu1 = 0;  // 绑定到 CPU 0
+    int cpu2 = 1;  // 绑定到 CPU 1
+    if (pthread_create(&control_tid, NULL, control_thread, &cpu1) != 0) {
+#else
     if (pthread_create(&control_tid, NULL, control_thread, NULL) != 0) {
+#endif
         tk_debug("Error: failed to create Control thread\n");
         return -1;
     }
+#if defined(RUN_ON_MULTI_CORE)
+    if (pthread_create(&gui_tid, NULL, gui_thread, &cpu2) != 0) {
+#else
     if (pthread_create(&gui_tid, NULL, gui_thread, NULL) != 0) {
+#endif
         tk_debug("Error: failed to create GUI thread\n");
         // stop_event_loop(); // Libevent的event_base不是线程安全的，直接跨线程调用event_base_loopbreak()会导致未定义行为，
         // 可能无法停止控制线程事件主循环，所以应当使用管道或其他线程间通信方式通知控制线程自己调用stop_event_loop()来结束事件循环
@@ -87,6 +116,11 @@ int main() {
         pthread_join(control_tid, NULL);
         return -1;
     }
+    // 设置 CPU 亲和性（通过 ps -eLo pid,tid,psr,cmd | grep tank.exe 观察效果）
+#if defined(RUN_ON_MULTI_CORE)
+    pin_thread_to_cpu(control_tid, cpu1);
+    pin_thread_to_cpu(gui_tid, cpu2);
+#endif
 
     tk_debug("Note: you can close GUI window to end the game...\n"); // 叉掉或按Esc关闭GUI窗口，将结束控制线程的事件主循环，两个线程就都可以结束了
     // 等待线程结束

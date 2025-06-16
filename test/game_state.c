@@ -12,6 +12,22 @@ Point tk_maze_offset = {20,20}; // 默认生成的地图左上角为(0,0)，导�
 
 extern Grid get_grid_by_tank_position(Point *pos);
 
+void init_spinlock(pthread_spinlock_t *spinlock) {
+    pthread_spin_init(spinlock, PTHREAD_PROCESS_PRIVATE);
+}
+
+void lock(pthread_spinlock_t *spinlock) {
+    pthread_spin_lock(spinlock);
+}
+
+void unlock(pthread_spinlock_t *spinlock) {
+    pthread_spin_unlock(spinlock);
+}
+
+void destroy_spinlock(pthread_spinlock_t *spinlock) {
+    pthread_spin_destroy(spinlock);
+}
+
 int init_idpool() {
     tk_idpool = id_pool_create(ID_POOL_SIZE);
     if (!tk_idpool) {
@@ -124,8 +140,11 @@ Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_
     if (TANK_ROLE_SELF == tank->role) {
         tk_shared_game_state.my_tank = tank;
     }
+    lock(&tk_shared_game_state.spinlock);
     TAILQ_INSERT_HEAD(&tk_shared_game_state.tank_list, tank, chain);
+    unlock(&tk_shared_game_state.spinlock);
 
+    init_spinlock(&tank->spinlock);
     tk_debug("create a tank(name:%s, id:%lu, total size:%luB, ExplodeEffect's size: %luB) success, total tank num %u\n", 
         tank->name, tank->id, sizeof(Tank), sizeof(tank->explode_effect), tank_num+1);
     return tank;
@@ -154,11 +173,15 @@ void delete_tank(Tank *tank, int dereference) {
             if (t1 != tank) {
                 continue;
             }
+            lock(&tk_shared_game_state.spinlock);
             TAILQ_REMOVE(&tk_shared_game_state.tank_list, t1, chain);
+            unlock(&tk_shared_game_state.spinlock);
         }
     }
     TAILQ_FOREACH_SAFE(shell, &tank->shell_list, chain, tmp) {
+        lock(&tank->spinlock);
         TAILQ_REMOVE(&tank->shell_list, shell, chain);
+        unlock(&tank->spinlock);
         delete_shell(shell, 0);
         shell_num++;
     }
@@ -166,6 +189,7 @@ void delete_tank(Tank *tank, int dereference) {
         (tank)->id, (tank)->name, (tank)->flags, (tank)->score, (tank)->health, shell_num);
     id_pool_release(tk_idpool, tank->id);
     tank->id = 0;
+    destroy_spinlock(&tank->spinlock);
     free(tank);
 }
 
@@ -180,6 +204,7 @@ void init_game_state() {
     //         tk_shared_game_state.blocks[i].end.x, tk_shared_game_state.blocks[i].end.y);
     //     printf("\n");
     // }
+    init_spinlock(&tk_shared_game_state.spinlock);
 }
 
 void cleanup_game_state() {
@@ -188,7 +213,9 @@ void cleanup_game_state() {
     tk_uint8_t tank_num = 0;
 
     TAILQ_FOREACH_SAFE(tank, &tk_shared_game_state.tank_list, chain, tmp) {
+        lock(&tk_shared_game_state.spinlock);
         TAILQ_REMOVE(&tk_shared_game_state.tank_list, tank, chain);
+        unlock(&tk_shared_game_state.spinlock);
         delete_tank(tank, 0);
         tank_num++;
     }
@@ -196,6 +223,7 @@ void cleanup_game_state() {
         free(tk_shared_game_state.blocks);
     }
     tk_shared_game_state.blocks_num = 0;
+    destroy_spinlock(&tk_shared_game_state.spinlock);
     tk_debug("total %u tanks are all freed\n", tank_num);
 }
 
@@ -351,7 +379,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
     if(info->angle_deg >= 360) {
         info->angle_deg -= 360;
     }
-    tk_debug_internal(DEBUG_TEST, "get_ray_intersection_dot_with_grid: start(%f,%f), angle_deg(%f), grid(%d,%d)\n", 
+    tk_debug_internal(DEBUG_SIGHT_LINE, "get_ray_intersection_dot_with_grid: start(%f,%f), angle_deg(%f), grid(%d,%d)\n", 
         POS(info->start_point), info->angle_deg, info->current_grid.x, info->current_grid.y);
     if (info->angle_deg == 0) { // 射线垂直向上
         info->k = INFINITY;
@@ -370,7 +398,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                 info->reflect_angle_deg = 180;
             }
         }
-        tk_debug_internal(DEBUG_TEST, "result(0): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
+        tk_debug_internal(DEBUG_SIGHT_LINE, "result(0): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
             POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, info->reflect_angle_deg);
     } else if (info->angle_deg == 90) { // 射线水平向右
         info->k = 0;
@@ -389,7 +417,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                 info->reflect_angle_deg = 270;
             }
         }
-        tk_debug_internal(DEBUG_TEST, "result(1): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
+        tk_debug_internal(DEBUG_SIGHT_LINE, "result(1): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
             POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, info->reflect_angle_deg);
     } else if (info->angle_deg == 180) { // 射线垂直向下
         info->k = INFINITY;
@@ -408,7 +436,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                 info->reflect_angle_deg = 0;
             }
         }
-        tk_debug_internal(DEBUG_TEST, "result(2): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
+        tk_debug_internal(DEBUG_SIGHT_LINE, "result(2): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
             POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, info->reflect_angle_deg);
     } else if (info->angle_deg == 270) {
         info->k = 0;
@@ -427,7 +455,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                 info->reflect_angle_deg = 90;
             }
         }
-        tk_debug_internal(DEBUG_TEST, "result(3): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
+        tk_debug_internal(DEBUG_SIGHT_LINE, "result(3): intersection(%f,%f), next_grid(%d,%d), k(%f), reflect_angle_deg(%f)\n", 
             POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, info->reflect_angle_deg);
     } else {
         info->k = k1 = calculate_slope(info->angle_deg);
@@ -449,7 +477,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                         info->reflect_angle_deg = 180 - info->angle_deg;
                     }
                 }
-                tk_debug_internal(DEBUG_TEST, "result(4): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(4): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             } else if (k1 < k0) { // 射线与当前网格的右边框相交
                 info->intersection_dot = (Point){p.x, info->start_point.y-(k1*(p.x-info->start_point.x))};
@@ -466,7 +494,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                         info->reflect_angle_deg = 360 - info->angle_deg;
                     }
                 }
-                tk_debug_internal(DEBUG_TEST, "result(5): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(5): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             } else { // 正好射入右上角
                 int connect1, connect2; // 与上侧/右侧网格的连通性
@@ -491,7 +519,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                     info->next_grid.x = info->current_grid.x+1;
                     info->next_grid.y = info->current_grid.y-1;
                 }
-                tk_debug_internal(DEBUG_TEST, "result(1-0): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(1-0): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             }
         } else if ((info->angle_deg > 90) && (info->angle_deg < 180)) { // k1 < 0
@@ -512,7 +540,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                         info->reflect_angle_deg = 180 - info->angle_deg;
                     }
                 }
-                tk_debug_internal(DEBUG_TEST, "result(6): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(6): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             } else if (k1 > k0) { // 射线与当前网格的右边框相交
                 info->intersection_dot = (Point){p.x, info->start_point.y+(k1*(info->start_point.x-p.x))};
@@ -529,7 +557,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                         info->reflect_angle_deg = 360 - info->angle_deg;
                     }
                 }
-                tk_debug_internal(DEBUG_TEST, "result(7): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(7): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             } else { // 正好射入右下角
                 int connect1, connect2; // 与下侧/右侧网格的连通性
@@ -554,7 +582,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                     info->next_grid.x = info->current_grid.x+1;
                     info->next_grid.y = info->current_grid.y+1;
                 }
-                tk_debug_internal(DEBUG_TEST, "result(1-1): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(1-1): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             }
         } else if ((info->angle_deg > 180) && (info->angle_deg < 270)) { // k1 > 0
@@ -575,7 +603,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                         info->reflect_angle_deg = 540 - info->angle_deg;
                     }
                 }
-                tk_debug_internal(DEBUG_TEST, "result(8): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(8): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             } else if (k1 < k0) { // 射线与当前网格的左边框相交
                 info->intersection_dot = (Point){p.x, info->start_point.y+(k1*(info->start_point.x-p.x))};
@@ -592,7 +620,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                         info->reflect_angle_deg = 360 - info->angle_deg;
                     }
                 }
-                tk_debug_internal(DEBUG_TEST, "result(9): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(9): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             } else { // 正好射入左下角
                 int connect1, connect2; // 与下侧/左侧网格的连通性
@@ -617,7 +645,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                     info->next_grid.x = info->current_grid.x-1;
                     info->next_grid.y = info->current_grid.y+1;
                 }
-                tk_debug_internal(DEBUG_TEST, "result(1-2): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(1-2): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             }
         } else if ((info->angle_deg > 270) && (info->angle_deg < 360)) { // k1 < 0
@@ -638,7 +666,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                         info->reflect_angle_deg = 540 - info->angle_deg;
                     }
                 }
-                tk_debug_internal(DEBUG_TEST, "result(10): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(10): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             } else if (k1 > k0) { // 射线与当前网格的左边框相交
                 info->intersection_dot = (Point){p.x, info->start_point.y-(k1*(p.x-info->start_point.x))};
@@ -655,7 +683,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                         info->reflect_angle_deg = 360 - info->angle_deg;
                     }
                 }
-                tk_debug_internal(DEBUG_TEST, "result(11): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(11): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             } else { // 正好射入左上角
                 int connect1, connect2; // 与上侧/左侧网格的连通性
@@ -680,7 +708,7 @@ void get_ray_intersection_dot_with_grid(Ray_Intersection_Dot_Info *info) {
                     info->next_grid.x = info->current_grid.x-1;
                     info->next_grid.y = info->current_grid.y-1;
                 }
-                tk_debug_internal(DEBUG_TEST, "result(1-3): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
+                tk_debug_internal(DEBUG_SIGHT_LINE, "result(1-3): intersection(%f,%f), next_grid(%d,%d), k(%f), k0(%f), reflect_angle_deg(%f)\n", 
                     POS(info->intersection_dot), info->next_grid.x, info->next_grid.y, info->k, k0, info->reflect_angle_deg);
             }
         }
@@ -748,7 +776,7 @@ static int is_two_pos_transfer_through_wall(Point *pos1, Point *pos2) {
             if (t == DOT_LEFT_OF_LINE) { // dot0在线pos1-pos2的上方
                 if (!is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid4) 
                     || !is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid4)) {
-                    tk_debug_internal(DEBUG_TEST, ">1 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
+                    tk_debug_internal(DEBUG_TANK_COLLISION, ">1 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
                         POS(dot0), POSPTR(pos1), POSPTR(pos2), 
                         is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid4), 
                         is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid4), 
@@ -759,7 +787,7 @@ static int is_two_pos_transfer_through_wall(Point *pos1, Point *pos2) {
             } else if (t == DOT_RIGHT_OF_LINE) { // dot0在线pos1-pos2的下方
                 if (!is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid3) 
                     || !is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid3)) {
-                    tk_debug_internal(DEBUG_TEST, ">2 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
+                    tk_debug_internal(DEBUG_TANK_COLLISION, ">2 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
                         POS(dot0), POSPTR(pos1), POSPTR(pos2), 
                         is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid3), 
                         is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid3), 
@@ -789,7 +817,7 @@ static int is_two_pos_transfer_through_wall(Point *pos1, Point *pos2) {
             if (t == DOT_LEFT_OF_LINE) { // dot0在线pos1-pos2的下方
                 if (!is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid3) 
                     || !is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid3)) {
-                    tk_debug_internal(DEBUG_TEST, ">3 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
+                    tk_debug_internal(DEBUG_TANK_COLLISION, ">3 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
                         POS(dot0), POSPTR(pos1), POSPTR(pos2), 
                         is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid3), 
                         is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid3), 
@@ -800,7 +828,7 @@ static int is_two_pos_transfer_through_wall(Point *pos1, Point *pos2) {
             } else if (t == DOT_RIGHT_OF_LINE) { // dot0在线pos1-pos2的上方
                 if (!is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid4) 
                     || !is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid4)) {
-                    tk_debug_internal(DEBUG_TEST, ">4 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
+                    tk_debug_internal(DEBUG_TANK_COLLISION, ">4 | dot0(%f,%f), pos1(%f,%f), pos2(%f,%f), %d, %d, grid1:(%d,%d), grid2:(%d,%d), grid3:(%d,%d), grid4:(%d,%d)\n", 
                         POS(dot0), POSPTR(pos1), POSPTR(pos2), 
                         is_two_grids_connected(&tk_shared_game_state.maze, &grid1, &grid4), 
                         is_two_grids_connected(&tk_shared_game_state.maze, &grid2, &grid4), 
@@ -877,21 +905,21 @@ void handle_key(Tank *tank, KeyValue *key_value) {
     // Grid grid1 = get_grid_by_tank_position(&outline.rightbottom);
     // Grid grid2 = get_grid_by_tank_position(&outline.leftbottom);
     // Grid grid3 = get_grid_by_tank_position(&outline.lefttop);
-    // tk_debug_internal(DEBUG_TEST, "grid:(%d, %d)/%d, (%d, %d)/%d, (%d, %d)/%d, (%d, %d)/%d\n", 
+    // tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "grid:(%d, %d)/%d, (%d, %d)/%d, (%d, %d)/%d, (%d, %d)/%d\n", 
     //     POS(grid0), grid_id(&grid0), POS(grid1), grid_id(&grid1), POS(grid2), grid_id(&grid2), POS(grid3), grid_id(&grid3));
 
     tank->collision_flag = 0;
     if (is_two_pos_transfer_through_wall(&outline.righttop, &outline.rightbottom)) {
-        tk_debug_internal(DEBUG_TEST, "前方发生碰撞\n");
+        tk_debug_internal(DEBUG_TANK_COLLISION, "前方发生碰撞\n");
         SET_FLAG(tank, collision_flag, COLLISION_FRONT);
     } else if (is_two_pos_transfer_through_wall(&outline.lefttop, &outline.righttop)) {
-        tk_debug_internal(DEBUG_TEST, "左侧发生碰撞\n");
+        tk_debug_internal(DEBUG_TANK_COLLISION, "左侧发生碰撞\n");
         SET_FLAG(tank, collision_flag, COLLISION_LEFT);
     } else if (is_two_pos_transfer_through_wall(&outline.rightbottom, &outline.leftbottom)) {
-        tk_debug_internal(DEBUG_TEST, "右侧发生碰撞\n");
+        tk_debug_internal(DEBUG_TANK_COLLISION, "右侧发生碰撞\n");
         SET_FLAG(tank, collision_flag, COLLISION_RIGHT);
     } else if (is_two_pos_transfer_through_wall(&outline.leftbottom, &outline.lefttop)) {
-        tk_debug_internal(DEBUG_TEST, "后方发生碰撞\n");
+        tk_debug_internal(DEBUG_TANK_COLLISION, "后方发生碰撞\n");
         SET_FLAG(tank, collision_flag, COLLISION_BACK);
     } else { // 未发生碰撞
         tank->position = new_position;
@@ -930,7 +958,10 @@ Shell* create_shell_for_tank(Tank *tank) {
     shell->angle_deg = tank->angle_deg;
     shell->speed = SHELL_INIT_SPEED;
     shell->tank_owner = (void*)tank;
+    shell->ttl = SHELL_COLLISION_MAX_NUM;
+    lock(&tank->spinlock);
     TAILQ_INSERT_HEAD(&tank->shell_list, shell, chain);
+    unlock(&tank->spinlock);
     tk_debug("create a shell(id:%lu) at (%f,%f) for tank(%s) success, the tank now has %u shells\n", shell->id, 
         POS(shell->position), tank->name, shell_num+1);
     return shell;
@@ -952,7 +983,9 @@ void delete_shell(Shell *shell, int dereference) {
             if (s != shell) {
                 continue;
             }
+            lock(&((Tank*)(shell->tank_owner))->spinlock);
             TAILQ_REMOVE(&((Tank*)(shell->tank_owner))->shell_list, s, chain);
+            unlock(&((Tank*)(shell->tank_owner))->spinlock);
         }
     }
     shell->tank_owner = NULL;
@@ -994,6 +1027,9 @@ void update_one_shell_movement_position(Shell *shell) {
     tk_uint8_t collide_wall_x = 0; // 水平墙壁
     tk_uint8_t collide_wall_y = 0; // 垂直墙壁
 
+    if (0 == shell->ttl) {
+        return;
+    }
     new_pos = move_point(shell->position, shell->angle_deg, shell->speed);
     next_grid = current_grid = get_grid_by_shell_position(&shell->position);
     new_angle_deg = shell->angle_deg;
@@ -1085,13 +1121,13 @@ void update_one_shell_movement_position(Shell *shell) {
                     if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
                         goto out;
                     } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x\n");
                         collide_wall_x = 1;
                     } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_y\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_y\n");
                         collide_wall_y = 1;
                     } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x & opposite_wall_y\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x & opposite_wall_y\n");
                         collide_wall_x = 1;
                         collide_wall_y = 1;
                     } else {
@@ -1099,24 +1135,24 @@ void update_one_shell_movement_position(Shell *shell) {
                     }
                 }
             }
-            tk_debug_internal(1, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
+            tk_debug_internal(DEBUG_SHELL_COLLISION, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
                 POS(new_pos), wall_x, wall_y, collide_wall_x, collide_wall_y);
             if (collide_wall_x && collide_wall_y) { // 碰撞墙角
-                tk_debug_internal(1, "触碰墙角(假设上) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(假设上) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
                 new_pos.y = wall_x + FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.x = shell->position.x + ((shell->position.y - (new_pos.y)) / calculate_tan(90 - shell->angle_deg));
                 new_angle_deg = 180 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
                 if ((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) > wall_y) {
-                    tk_debug_internal(1, "触碰墙角(实际右) | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(实际右) | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
                         shell->angle_deg, wall_y, POS(new_pos));
                     new_pos.x = wall_y - FINETUNE_SHELL_RADIUS_LENGTH;
                     new_pos.y = shell->position.y - ((new_pos.x - shell->position.x) / calculate_tan(shell->angle_deg));
                     new_angle_deg = 360 - shell->angle_deg;
-                    tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
                 } else if ((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) == wall_y) { // 刚好触碰两面墙壁，原路反弹回去
-                    tk_debug_internal(1, "触碰墙角(刚好触碰右上两面墙壁)\n");
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(刚好触碰右上两面墙壁)\n");
                     new_pos.y = wall_x + FINETUNE_SHELL_RADIUS_LENGTH;
                     new_pos.x = wall_y - FINETUNE_SHELL_RADIUS_LENGTH;
                     new_angle_deg = shell->angle_deg + 180;
@@ -1125,19 +1161,19 @@ void update_one_shell_movement_position(Shell *shell) {
                     }
                 }
             } else if (collide_wall_x && !collide_wall_y) { // 碰撞(上)单面墙壁
-                tk_debug_internal(1, "触碰(上)单面墙壁 | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰(上)单面墙壁 | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
                 new_pos.y = wall_x + FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.x = shell->position.x + ((shell->position.y - (new_pos.y)) / calculate_tan(90 - shell->angle_deg));
                 new_angle_deg = 180 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
             } else if (!collide_wall_x && collide_wall_y) { // 碰撞(右)单面墙壁
-                tk_debug_internal(1, "触碰(右)单面墙壁 | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰(右)单面墙壁 | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_y, POS(new_pos));
                 new_pos.x = wall_y - FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.y = shell->position.y - ((new_pos.x - shell->position.x) / calculate_tan(shell->angle_deg));
                 new_angle_deg = 360 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
             } else { // 无碰撞
                 goto out;
             }
@@ -1170,13 +1206,13 @@ void update_one_shell_movement_position(Shell *shell) {
                     if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
                         goto out;
                     } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x\n");
                         collide_wall_x = 1;
                     } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_y\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_y\n");
                         collide_wall_y = 1;
                     } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x & opposite_wall_y\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x & opposite_wall_y\n");
                         collide_wall_x = 1;
                         collide_wall_y = 1;
                     } else {
@@ -1184,24 +1220,24 @@ void update_one_shell_movement_position(Shell *shell) {
                     }
                 }
             }
-            tk_debug_internal(1, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
+            tk_debug_internal(DEBUG_SHELL_COLLISION, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
                 POS(new_pos), wall_x, wall_y, collide_wall_x, collide_wall_y);
             if (collide_wall_x && collide_wall_y) {
-                tk_debug_internal(1, "触碰墙角(假设下) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(假设下) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
                 new_pos.y = wall_x - FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.x = shell->position.x + ((new_pos.y - shell->position.y) / calculate_tan(shell->angle_deg - 90));
                 new_angle_deg = 180 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
                 if ((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) > wall_y) {
-                    tk_debug_internal(1, "触碰墙角(实际右) | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(实际右) | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
                         shell->angle_deg, wall_y, POS(new_pos));
                     new_pos.x = wall_y - FINETUNE_SHELL_RADIUS_LENGTH;
                     new_pos.y = shell->position.y + ((new_pos.x - shell->position.x) / calculate_tan(180 - shell->angle_deg));
                     new_angle_deg = 360 - shell->angle_deg;
-                    tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
                 } else if ((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) == wall_y) {
-                    tk_debug_internal(1, "触碰墙角(刚好触碰右下两面墙壁)\n");
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(刚好触碰右下两面墙壁)\n");
                     new_pos.y = wall_x - FINETUNE_SHELL_RADIUS_LENGTH;
                     new_pos.x = wall_y - FINETUNE_SHELL_RADIUS_LENGTH;
                     new_angle_deg = shell->angle_deg + 180;
@@ -1210,19 +1246,19 @@ void update_one_shell_movement_position(Shell *shell) {
                     }
                 }
             } else if (collide_wall_x && !collide_wall_y) { // 碰撞(下)单面墙壁
-                tk_debug_internal(1, "触碰(下)单面墙壁 | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰(下)单面墙壁 | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
                 new_pos.y = wall_x - FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.x = shell->position.x + ((new_pos.y - shell->position.y) / calculate_tan(shell->angle_deg - 90));
                 new_angle_deg = 180 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
             } else if (!collide_wall_x && collide_wall_y) { // 碰撞(右)单面墙壁
-                tk_debug_internal(1, "触碰(右)单面墙壁 | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰(右)单面墙壁 | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_y, POS(new_pos));
                 new_pos.x = wall_y - FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.y = shell->position.y + ((new_pos.x - shell->position.x) / calculate_tan(180 - shell->angle_deg));
                 new_angle_deg = 360 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
             } else {
                 goto out;
             }
@@ -1255,13 +1291,13 @@ void update_one_shell_movement_position(Shell *shell) {
                     if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
                         goto out;
                     } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x\n");
                         collide_wall_x = 1;
                     } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_y\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_y\n");
                         collide_wall_y = 1;
                     } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x & opposite_wall_y\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x & opposite_wall_y\n");
                         collide_wall_x = 1;
                         collide_wall_y = 1;
                     } else {
@@ -1269,24 +1305,24 @@ void update_one_shell_movement_position(Shell *shell) {
                     }
                 }
             }
-            tk_debug_internal(1, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
+            tk_debug_internal(DEBUG_SHELL_COLLISION, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
                 POS(new_pos), wall_x, wall_y, collide_wall_x, collide_wall_y);
             if (collide_wall_x && collide_wall_y) {
-                tk_debug_internal(1, "触碰墙角(假设下) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(假设下) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
                 new_pos.y = wall_x - FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.x = shell->position.x - ((new_pos.y - shell->position.y) / calculate_tan(270 - shell->angle_deg));
                 new_angle_deg = 540 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
                 if ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) < wall_y) {
-                    tk_debug_internal(1, "触碰墙角(实际左) | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(实际左) | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
                         shell->angle_deg, wall_y, POS(new_pos));
                     new_pos.x = wall_y + FINETUNE_SHELL_RADIUS_LENGTH;
                     new_pos.y = shell->position.y + ((shell->position.x - new_pos.x) / calculate_tan(shell->angle_deg - 180));
                     new_angle_deg = 360 - shell->angle_deg;
-                    tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
                 } else if ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) == wall_y) {
-                    tk_debug_internal(1, "触碰墙角(刚好触碰左下两面墙壁)\n");
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(刚好触碰左下两面墙壁)\n");
                     new_pos.y = wall_x - FINETUNE_SHELL_RADIUS_LENGTH;
                     new_pos.x = wall_y + FINETUNE_SHELL_RADIUS_LENGTH;
                     new_angle_deg = shell->angle_deg + 180;
@@ -1295,19 +1331,19 @@ void update_one_shell_movement_position(Shell *shell) {
                     }
                 }
             } else if (collide_wall_x && !collide_wall_y) { // 碰撞(下)单面墙壁
-                tk_debug_internal(1, "触碰(下)单面墙壁 | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰(下)单面墙壁 | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
                 new_pos.y = wall_x - FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.x = shell->position.x - ((new_pos.y - shell->position.y) / calculate_tan(270 - shell->angle_deg));
                 new_angle_deg = 540 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
             } else if (!collide_wall_x && collide_wall_y) { // 碰撞(左)单面墙壁
-                tk_debug_internal(1, "触碰(左)单面墙壁 | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰(左)单面墙壁 | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_y, POS(new_pos));
                 new_pos.x = wall_y + FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.y = shell->position.y + ((shell->position.x - new_pos.x) / calculate_tan(shell->angle_deg - 180));
                 new_angle_deg = 360 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
             } else {
                 goto out;
             }
@@ -1340,13 +1376,13 @@ void update_one_shell_movement_position(Shell *shell) {
                     if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
                         goto out;
                     } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x\n");
                         collide_wall_x = 1;
                     } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_y\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_y\n");
                         collide_wall_y = 1;
                     } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
-                        tk_debug_internal(1, "》特殊：碰撞opposite_wall_x & opposite_wall_y\n");
+                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x & opposite_wall_y\n");
                         collide_wall_x = 1;
                         collide_wall_y = 1;
                     } else {
@@ -1354,24 +1390,24 @@ void update_one_shell_movement_position(Shell *shell) {
                     }
                 }
             }
-            tk_debug_internal(1, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
+            tk_debug_internal(DEBUG_SHELL_COLLISION, "current_grid(%d,%d), new_pos(%f,%f), wall_x(%f, wall_y(%f)), collide_wall(%d,%d)\n", current_grid.x, current_grid.y, 
                 POS(new_pos), wall_x, wall_y, collide_wall_x, collide_wall_y);
             if (collide_wall_x && collide_wall_y) {
-                tk_debug_internal(1, "触碰墙角(假设上) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(假设上) | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
                 new_pos.y = wall_x + FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.x = shell->position.x - ((shell->position.y - (new_pos.y)) / calculate_tan(shell->angle_deg - 270));
                 new_angle_deg = 540 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
                 if ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) < wall_y) {
-                    tk_debug_internal(1, "触碰墙角(实际左) | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(实际左) | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
                         shell->angle_deg, wall_y, POS(new_pos));
                     new_pos.x = wall_y + FINETUNE_SHELL_RADIUS_LENGTH;
                     new_pos.y = shell->position.y - ((shell->position.x - new_pos.x) / calculate_tan(360 - shell->angle_deg));
                     new_angle_deg = 360 - shell->angle_deg;
-                    tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
                 } else if ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) == wall_y) {
-                    tk_debug_internal(1, "触碰墙角(刚好触碰左上两面墙壁)\n");
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰墙角(刚好触碰左上两面墙壁)\n");
                     new_pos.y = wall_x + FINETUNE_SHELL_RADIUS_LENGTH;
                     new_pos.x = wall_y + FINETUNE_SHELL_RADIUS_LENGTH;
                     new_angle_deg = shell->angle_deg + 180;
@@ -1380,25 +1416,28 @@ void update_one_shell_movement_position(Shell *shell) {
                     }
                 }
             } else if (collide_wall_x && !collide_wall_y) { // 碰撞(上)单面墙壁
-                tk_debug_internal(1, "触碰(上)单面墙壁 | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰(上)单面墙壁 | pos(%f,%f), angle_deg(%f), wallx(%f), new_pos(%f,%f)\n", POS(shell->position), 
                     shell->angle_deg, wall_x, POS(new_pos));
                 new_pos.y = wall_x + FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.x = shell->position.x - ((shell->position.y - (new_pos.y)) / calculate_tan(shell->angle_deg - 270));
                 new_angle_deg = 540 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
             } else if (!collide_wall_x && collide_wall_y) { // 碰撞(左)单面墙壁
-                tk_debug_internal(1, "触碰(左)单面墙壁 | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "触碰(左)单面墙壁 | pos(%f,%f), angle_deg(%f), wally(%f), new_pos(%f,%f)\n", POS(shell->position), 
                         shell->angle_deg, wall_y, POS(new_pos));
                 new_pos.x = wall_y + FINETUNE_SHELL_RADIUS_LENGTH;
                 new_pos.y = shell->position.y - ((shell->position.x - new_pos.x) / calculate_tan(360 - shell->angle_deg));
                 new_angle_deg = 360 - shell->angle_deg;
-                tk_debug_internal(1, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
+                tk_debug_internal(DEBUG_SHELL_COLLISION, "fixed_new_pos(%f,%f), new_angle_deg(%f)\n", POS(new_pos), new_angle_deg);
             } else {
                 goto out;
             }
         }
     }
 
+    if (new_angle_deg != shell->angle_deg) { // 发生碰撞
+        shell->ttl -= 1;
+    }
 out: // 没有发生碰撞反弹直接out
     shell->position = new_pos;
     shell->angle_deg = new_angle_deg;
@@ -1429,16 +1468,22 @@ void update_all_shell_movement_position() {
 
     TAILQ_FOREACH_SAFE(tank, &tk_shared_game_state.tank_list, chain, tt) {
         TAILQ_FOREACH_SAFE(shell, &tank->shell_list, chain, ts) {
-            // tk_debug_internal(1, "update shell %lu, pos(%f,%f)\n", shell->id, POS(shell->position));
             old_pos = shell->position;
             update_one_shell_movement_position(shell);
-            tk_debug_internal(1, "move from (%f,%f) to (%f,%f)\n", POS(old_pos), POS(shell->position));
+            tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "shell %lu(tank %lu) move from (%f,%f) to (%f,%f)\n", 
+                shell->id, tank->id, POS(old_pos), POS(shell->position));
             /*如果上次移动位置即将触碰墙壁，本次前进则会检测到碰撞，因此本次前进的步伐非常之微小，可以认为前后都处于同一位置，
             简单来说，正常一个位置只有一帧画面的话，那现在就变成两帧都在同一位置，会使得玩家观察到碰撞反弹处炮弹迟滞一段时间的现象，
             对于这种情况，需要再次执行前进动作*/
             if (is_near(POS(old_pos), POS(shell->position))) {
                 update_one_shell_movement_position(shell);
-                tk_debug_internal(1, "本次移动距离太小，再次移动！(%f,%f)=>(%f,%f)\n", POS(old_pos), POS(shell->position));
+                tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "本次移动距离太小，再次移动！(%f,%f)=>(%f,%f)\n", POS(old_pos), POS(shell->position));
+            }
+            if (0 == shell->ttl) { // shell is dead
+                lock(&tank->spinlock);
+                TAILQ_REMOVE(&tank->shell_list, shell, chain);
+                unlock(&tank->spinlock);
+                delete_shell(shell, 0);
             }
         }
     }

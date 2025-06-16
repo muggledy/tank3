@@ -290,7 +290,7 @@ static void draw_tank_coordinates(SDL_Renderer* renderer, Tank* tank) {
     info.angle_deg = tank->angle_deg;
     info.current_grid = get_grid_by_tank_position(&tank->position);
     info.terminate_flag = 0;
-    tk_debug_internal(DEBUG_TEST, "draw_tank_coordinates...\n");
+    tk_debug_internal(DEBUG_SIGHT_LINE, "draw_tank_coordinates...\n");
     for (int i=0; i<6; i++) { // 至多反射6次
         get_ray_intersection_dot_with_grid(&info);
         if (info.terminate_flag) {
@@ -705,13 +705,17 @@ void render_gui_scene() {
     }
 
     // 渲染坦克
+    lock(&tk_shared_game_state.spinlock);
     TAILQ_FOREACH(tank, &tk_shared_game_state.tank_list, chain) {
         draw_tank(tk_renderer, tank);
         draw_collision_warning(tk_renderer, tank);
+        lock(&tank->spinlock); // 尽管GUI线程存在着两把锁的“请求和保持”问题，但控制线程没有该问题，因此无死锁
         TAILQ_FOREACH(shell, &tank->shell_list, chain) {
             draw_shell(tk_renderer, shell);
         }
+        unlock(&tank->spinlock);
     }
+    unlock(&tk_shared_game_state.spinlock);
 
     // 显示渲染内容
     SDL_RenderPresent(tk_renderer);
@@ -847,6 +851,7 @@ void gui_main_loop() {
                 quit = 1;
                 // stop_event_loop();
                 notify_control_thread_exit();
+                goto out;
             } else if (e.type == SDL_KEYDOWN) { // 处理键盘事件
                 // printf(">>> key %d down\n", e.key.keysym.sym);
                 if (mytankptr->health > 0) {
@@ -859,7 +864,8 @@ void gui_main_loop() {
                         quit = 1;
                         // stop_event_loop();
                         notify_control_thread_exit();
-                        break;
+                        goto out;
+                        // break;
                     case SDLK_w:
                         // send_key_to_control_thread(EVENT_KEY_PRESS, KEY_W);
                         insert_op_list(OP_K_W_DOWN); // op_list用于实现按键去重
@@ -940,7 +946,7 @@ void gui_main_loop() {
             }
         }
         if ((get_op_list_num() == 0) && (tk_key_value.mask != 0) /*&& (tk_shared_game_state.game_time % 2 == 0) && 0*/) {
-            tk_debug_internal(1, "auto send key event(%u)\n", tk_shared_game_state.game_time);
+            tk_debug_internal(DEBUG_GUI_THREAD_DETAIL, "auto send key event(%u)\n", tk_shared_game_state.game_time);
             if (TST_FLAG(&tk_key_value, mask, TK_KEY_W_ACTIVE)) {
                 send_key_to_control_thread(EVENT_KEY_PRESS, KEY_W);
             } else if (TST_FLAG(&tk_key_value, mask, TK_KEY_S_ACTIVE)) {
@@ -958,6 +964,8 @@ void gui_main_loop() {
         // 控制帧率
         SDL_Delay(RENDER_FPS_MS); // 42ms约24FPS
     }
+out:
+    return;
 }
 
 #if 0

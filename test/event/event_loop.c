@@ -40,7 +40,7 @@ void pipe_read_callback(evutil_socket_t fd, short what, void *arg) {
     int len;
     int total_bytes = 0;
 
-    tk_debug_internal(DEBUG_TEST, "pipe_read_callback is called...\n");
+    tk_debug_internal(DEBUG_EVENT_LOOP, "pipe_read_callback is called...\n");
     // 边缘触发模式下，必须读完所有数据
     while (1) {
         len = read(fd, buf, sizeof(buf));
@@ -48,11 +48,11 @@ void pipe_read_callback(evutil_socket_t fd, short what, void *arg) {
         if (len > 0) {
             // 有数据可读
             if (!writer_connected) {
-                tk_debug_internal(DEBUG_TEST, "Writer connected\n");
+                tk_debug_internal(DEBUG_EVENT_LOOP, "Writer connected\n");
                 writer_connected = 1;
             }
             total_bytes += len;
-            tk_debug_internal(DEBUG_TEST, "Read chunk: %d bytes\n", len); // 一个字节就代表一个坦克事件
+            tk_debug_internal(DEBUG_EVENT_LOOP, "Read chunk: %d bytes\n", len); // 一个字节就代表一个坦克事件
             // 处理数据
             // 从事件队列中取出事件并处理
             Event* event = dequeue_event(&tk_event_queue, 0);
@@ -67,7 +67,7 @@ void pipe_read_callback(evutil_socket_t fd, short what, void *arg) {
         } else if (len == 0) {
             // 写端关闭
             if (writer_connected) {
-                tk_debug_internal(DEBUG_TEST, "Writer disconnected\n");
+                tk_debug_internal(DEBUG_EVENT_LOOP, "Writer disconnected\n");
                 writer_connected = 0;
             }
             break;
@@ -76,7 +76,7 @@ void pipe_read_callback(evutil_socket_t fd, short what, void *arg) {
             if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
                 // 缓冲区已空，退出循环
                 if (total_bytes > 0) {
-                    tk_debug_internal(DEBUG_TEST, "Finished reading %d bytes\n", total_bytes);
+                    tk_debug_internal(DEBUG_EVENT_LOOP, "Finished reading %d bytes\n", total_bytes);
                 }
                 break;
             } else {
@@ -225,7 +225,7 @@ void handle_event(Event* event) {
     switch (event->type) {
     case EVENT_KEY_PRESS:
     {
-        tk_debug_internal(DEBUG_TEST, "recv key %d down\n", event->data.key);
+        tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "recv key %d down\n", event->data.key);
         switch (event->data.key) {
             case KEY_W:
                 SET_FLAG(&tk_key_value_for_control, mask, TK_KEY_W_ACTIVE);
@@ -240,7 +240,7 @@ void handle_event(Event* event) {
                 SET_FLAG(&tk_key_value_for_control, mask, TK_KEY_D_ACTIVE);
                 break;
             case KEY_SPACE:
-                // tk_debug_internal(1, "发射子弹\n");
+                // tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "发射子弹\n");
                 create_shell_for_tank(mytankptr);
                 // break;
                 return;
@@ -251,7 +251,7 @@ void handle_event(Event* event) {
     break;
     case EVENT_KEY_RELEASE:
     {
-        tk_debug_internal(DEBUG_TEST, "recv key %d up\n", event->data.key);
+        tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "recv key %d up\n", event->data.key);
         switch (event->data.key) {
             case KEY_W:
                 CLR_FLAG(&tk_key_value_for_control, mask, TK_KEY_W_ACTIVE);
@@ -313,6 +313,6 @@ struct event* add_timer_event(int timeout_ms, void (*callback)(void*), void* arg
 }
 
 void update_game_state_timer_handle() {
-    tk_debug_internal(1, "update_game_state_timer_handle\n");
+    tk_debug_internal(DEBUG_EVENT_LOOP, "update_game_state_timer_handle\n");
     update_all_shell_movement_position();
 }

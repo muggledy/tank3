@@ -5,8 +5,12 @@
 #include <unistd.h>       // 提供 SYS_gettid 和 pid_t 的定义
 #include "debug.h"
 
-// 线程局部存储缓冲
-static __thread char prefix_buf[64];
+#define DEBUG_BUF_SIZE 1024
+
+// 线程局部存储的前缀缓冲
+static __thread char prefix_buf[64] = {0};
+// 线程本地存储的完整输出缓冲区
+static __thread char output_buf[DEBUG_BUF_SIZE];
 
 void tk_debug_internal(int control, const char *format, ...) {
     if (!control) return;
@@ -15,16 +19,24 @@ void tk_debug_internal(int control, const char *format, ...) {
         pid_t tid = syscall(SYS_gettid);  // 获取内核级线程ID
         snprintf(prefix_buf, sizeof(prefix_buf), "[T-%d] ", tid);
     }
-    
-    // 打印前缀
-    fputs(prefix_buf, stdout);
-    
-    // 打印用户内容
+
     va_list args;
     va_start(args, format);
-    vprintf(format, args);
+
+    // 合并前缀和用户内容到输出缓冲区
+    size_t prefix_len = strlen(prefix_buf);
+    strncpy(output_buf, prefix_buf, prefix_len);
+    output_buf[DEBUG_BUF_SIZE - 1] = '\0';
+    // 追加格式化内容
+    vsnprintf(output_buf + prefix_len, 
+              DEBUG_BUF_SIZE - prefix_len - 1, 
+              format, args);
+
     va_end(args);
-    
+
+    // 一次性输出完整内容
+    fputs(output_buf, stdout);
+
     // 可选：立即刷新
     fflush(stdout);
 }

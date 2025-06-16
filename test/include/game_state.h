@@ -6,6 +6,7 @@
 #include "queue.h"
 #include "debug.h"
 #include "maze.h"
+#include <pthread.h>
 
 // 2D向量结构
 typedef struct __attribute__((packed)) {
@@ -63,7 +64,7 @@ typedef struct _Shell {
     tk_float32_t speed;     // 移动速度
 #define SHELL_INIT_SPEED 9  // <=10
     tk_uint8_t ttl; // 碰撞墙壁的次数，达到阈值(SHELL_COLLISION_MAX_NUM)则湮灭
-#define SHELL_COLLISION_MAX_NUM 6
+#define SHELL_COLLISION_MAX_NUM 6 // TTL
     TAILQ_ENTRY(_Shell) chain;
 } Shell;
 
@@ -95,10 +96,11 @@ typedef struct _Tank {
 #define TANK_ROLE_SELF  0
 #define TANK_ROLE_ENEMY 1
     tk_uint8_t role;
-#define DEFAULT_TANK_SHELLS_MAX_NUM 10
+#define DEFAULT_TANK_SHELLS_MAX_NUM 4
     tk_uint8_t max_shell_num;
     Rectangle outline; // 坦克轮廓边界（简化为矩形），用于碰撞检测，某一帧中，其可能已经侵入墙体
     Rectangle practical_outline; // 实际的轮廓边界，未发生碰撞的轮廓
+    pthread_spinlock_t spinlock; // 控制线程修改tank对象内容与GUI线程访问读取tank对象内容需要上锁保证正确，为了减小性能影响，此处我们暂用于保护对tank->shell_list的安全访问
     TAILQ_HEAD(_tank_shells_list, _Shell) shell_list;
     TAILQ_ENTRY(_Tank) chain;
 } Tank;
@@ -116,6 +118,7 @@ typedef struct {
 
     tk_uint32_t game_time; // 游戏时间（帧）
     tk_uint8_t game_over;  // 游戏是否结束
+    pthread_spinlock_t spinlock; // 参考tank->spinlock，此锁则是用于保护对tk_shared_game_state.tank_list的安全访问
 } GameState;
 
 extern GameState tk_shared_game_state;
@@ -136,7 +139,7 @@ typedef struct {
 } Ray_Intersection_Dot_Info;
 
 static void print_key_value(KeyValue *v) {
-    if (!DEBUG_TEST) {
+    if (!DEBUG_CONTROL_THREAD_DETAIL) {
         return;
     }
     if (!v /*|| ((v->mask) == 0)*/) {
@@ -181,5 +184,8 @@ extern Grid get_grid_by_tank_position(Point *pos);
 extern Shell* create_shell_for_tank(Tank *tank);
 extern void delete_shell(Shell *shell, int dereference);
 extern void update_all_shell_movement_position();
+
+extern void lock(pthread_spinlock_t *spinlock);
+extern void unlock(pthread_spinlock_t *spinlock);
 
 #endif
