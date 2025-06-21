@@ -105,6 +105,9 @@ int init_music() { // call after init_gui()
     if (load_music(&(tk_music.explode), DEFAULT_TANK_EXPLODE_MUSIC_PATH) != 0) {
         return -1;
     }
+    if (load_music(&(tk_music.shoot), DEFAULT_TANK_SHOOT_MUSIC_PATH) != 0) {
+        return -1;
+    }
 
     return 0;
 }
@@ -129,6 +132,7 @@ void cleanup_music() { // call before cleanup_gui()
     // 释放声音资源
     pause_and_free_music(&(tk_music.move));
     pause_and_free_music(&(tk_music.explode));
+    pause_and_free_music(&(tk_music.shoot));
 
     // 关闭SDL_mixer
     Mix_Quit();
@@ -558,6 +562,9 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
             CLR_FLAG(tank, flags, TANK_ALIVE);
             trigger_explode(tank);
             SET_FLAG(tank, flags, TANK_DYING);
+            if (is_music_playing(&(tk_music.explode))) {
+                pause_music(&(tk_music.explode));
+            }
             play_music(&(tk_music.explode), 1);
         }
         // 绘制爆炸效果
@@ -640,7 +647,7 @@ void render_tank(SDL_Renderer* renderer, Tank* tank) {
 // 绘制碰撞预警特效
 void draw_collision_warning(SDL_Renderer* renderer, Tank* tank) {
     if (!renderer || !tank) return;
-    if (tank->collision_flag == 0) return;
+    if ((tank->collision_flag << 4) == 0) return;
     if (!TST_FLAG(tank, flags, TANK_ALIVE)) return;
 
     // 设置预警颜色（半透明红色，TODO: 碰撞强度影响透明度）
@@ -731,6 +738,9 @@ int check_resource_file() {
     if (!get_absolute_path(DEFAULT_TANK_EXPLODE_MUSIC_PATH)) {
         return -1;
     }
+    if (!get_absolute_path(DEFAULT_TANK_SHOOT_MUSIC_PATH)) {
+        return -1;
+    }
 
     return 0;
 }
@@ -739,6 +749,15 @@ void gui_init_tank(Tank *tank) {
     if (!tank) return;
     // 设置坦克颜色（玩家坦克为蓝色，AI坦克为红色）
     tank->basic_color = (void *)((TANK_ROLE_SELF == tank->role) ? ID2COLORPTR(TK_BLUE) : ID2COLORPTR(TK_RED));
+}
+
+void gui_init_all_tank() {
+    Tank *tank = NULL;
+    lock(&tk_shared_game_state.spinlock);
+    TAILQ_FOREACH(tank, &tk_shared_game_state.tank_list, chain) {
+        gui_init_tank(tank);
+    }
+    unlock(&tk_shared_game_state.spinlock);
 }
 
 void notify_control_thread_exit() {
@@ -854,7 +873,7 @@ void gui_main_loop() {
                 goto out;
             } else if (e.type == SDL_KEYDOWN) { // 处理键盘事件
                 // printf(">>> key %d down\n", e.key.keysym.sym);
-                if (mytankptr->health > 0) {
+                if (mytankptr && (mytankptr->health > 0)) {
                     mytankptr->health--;
                 } else {
                     break;
@@ -891,6 +910,12 @@ void gui_main_loop() {
                         SET_FLAG(&tk_key_value, mask, TK_KEY_D_ACTIVE);
                         break;
                     case SDLK_SPACE: // 发射子弹
+                        if (mytankptr && !TST_FLAG(mytankptr, flags, TANK_FORBID_SHOOT)) {
+                            if (is_music_playing(&(tk_music.shoot))) {
+                                pause_music(&(tk_music.shoot));
+                            }
+                            play_music(&(tk_music.shoot), 1);
+                        }
                         insert_op_list(OP_K_SPACE_DOWN);
                         break;
                 }

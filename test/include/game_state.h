@@ -55,7 +55,7 @@ typedef struct {
 
 // 炮弹结构
 typedef struct _Shell {
-    tk_uint32_t id;
+    tk_uint32_t id; // 对象id，游戏内可创建的对象资源是有限的，从资源分配角度，alloc id失败意味着游戏资源耗尽
     // tk_uint32_t owner_id;  // 发射者ID
     void *tank_owner; // 发射者
 #define SHELL_RADIUS_LENGTH 3 // 炮弹半径
@@ -85,22 +85,35 @@ typedef struct _Tank {
 #define TANK_ALIVE 0x00000001
 #define TANK_DYING 0x00000002
 #define TANK_DEAD  0x00000004
+#define TANK_FORBID_SHOOT 0x00000008
+#define TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY 0x00000100
     tk_uint32_t flags;
 #define COLLISION_FRONT 0x01
 #define COLLISION_BACK  0x02
 #define COLLISION_LEFT  0x04
 #define COLLISION_RIGHT 0x08
-    tk_uint8_t collision_flag; //碰撞方位标记
+    tk_uint8_t collision_flag; //碰撞方位标记（仅低四位用于碰撞标记，高四位用于其他用途）
     void *basic_color; //基本颜色
     ExplodeEffect explode_effect; //爆炸效果
 #define TANK_ROLE_SELF  0
-#define TANK_ROLE_ENEMY 1
+#define TANK_ROLE_ENEMY_MUGGLE 1  // 傻瓜敌人
     tk_uint8_t role;
 #define DEFAULT_TANK_SHELLS_MAX_NUM 4
     tk_uint8_t max_shell_num;
     Rectangle outline; // 坦克轮廓边界（简化为矩形），用于碰撞检测，某一帧中，其可能已经侵入墙体
     Rectangle practical_outline; // 实际的轮廓边界，未发生碰撞的轮廓
-    pthread_spinlock_t spinlock; // 控制线程修改tank对象内容与GUI线程访问读取tank对象内容需要上锁保证正确，为了减小性能影响，此处我们暂用于保护对tank->shell_list的安全访问
+    pthread_spinlock_t spinlock; // 理论上控制线程修改tank对象内容与GUI线程访问读取tank对象内容需要上锁保证正确，为了减小性能影响，此处我们暂用于保护对tank->shell_list的安全访问
+    KeyValue key_value_for_control;
+    /*for muggle enemy*/
+#define STEPS_TO_ESCAPE_NUM 4
+#define MOVE_FRONT 0x01
+#define MOVE_BACK  0x02
+#define MOVE_LEFT  0x04
+#define MOVE_RIGHT 0x08
+    tk_uint32_t *steps_to_escape; // 傻瓜敌人遇阻自行脱困的步骤，低四位代表方向，高四位代表动作帧数
+    Grid current_grid;
+    tk_uint32_t (*map_vis)[HORIZON_GRID_NUMBER]; // 标记对地图上网格的访问状态（权重矩阵，每访问一个网格，则访问权重/访问量加1）
+    /*end(for muggle enemy)*/
     TAILQ_HEAD(_tank_shells_list, _Shell) shell_list;
     TAILQ_ENTRY(_Tank) chain;
 } Tank;
@@ -115,9 +128,8 @@ typedef struct {
     Maze maze; // 迷宫地图
     Block* blocks;          // 地图墙壁集合
     tk_uint16_t blocks_num; // 地图墙壁数量
-
-    tk_uint32_t game_time; // 游戏时间（帧）
-    tk_uint8_t game_over;  // 游戏是否结束
+    tk_uint32_t game_time;  // 游戏时间（帧）
+    // tk_uint8_t game_over;  // 游戏是否结束
     pthread_spinlock_t spinlock; // 参考tank->spinlock，此锁则是用于保护对tk_shared_game_state.tank_list的安全访问
 } GameState;
 
@@ -184,6 +196,7 @@ extern Grid get_grid_by_tank_position(Point *pos);
 extern Shell* create_shell_for_tank(Tank *tank);
 extern void delete_shell(Shell *shell, int dereference);
 extern void update_all_shell_movement_position();
+extern void update_muggledy_enemy_position();
 
 extern void lock(pthread_spinlock_t *spinlock);
 extern void unlock(pthread_spinlock_t *spinlock);

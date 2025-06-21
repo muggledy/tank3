@@ -129,7 +129,7 @@ void print_text_cache() {
     for (i = 0; i < cache_count; i++) {
         printf("(%d) %s. hits:%u\n", i, text_cache[i].text, text_cache[i].hits);
     }
-    printf("not hit text num: %u, not hit font num: %u\n", total_not_hit_text_cache_num, total_not_hit_font_cache_num);
+    printf("statistic: not hit text num: %u, not hit font num: %u\n", total_not_hit_text_cache_num, total_not_hit_font_cache_num);
 }
 
 void clear_text_cache() {

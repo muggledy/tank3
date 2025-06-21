@@ -5,6 +5,7 @@
 #include "event_loop.h"
 #include "debug.h"
 #include <sched.h>
+#include "tools.h"
 
 // #define RUN_ON_MULTI_CORE // 设置了反而效果不好，因为明面上我只有三个线程（含主线程），但实际
 // 一些三方库隐含创建了多线程，因此本游戏实际涉及>3个线程，设置RUN_ON_MULTI_CORE会使得线程集中于两个核心上，
@@ -49,11 +50,12 @@ void* gui_thread(void* arg) {
         goto out;
     }
     init_game_state();
-    create_tank("muggledy", get_random_grid_pos_for_tank(), 300, TANK_ROLE_SELF);
+    create_tank("yangdai", get_random_grid_pos_for_tank(), 300, TANK_ROLE_SELF);
+    create_tank("muggle-0", get_random_grid_pos_for_tank(), random_range(0, 360), TANK_ROLE_ENEMY_MUGGLE);
     if (!mytankptr) {
         goto out;
     }
-    gui_init_tank(mytankptr);
+    gui_init_all_tank();
     // 主循环
     gui_main_loop();
     // ret = 0;
@@ -126,6 +128,6 @@ int main() {
     // 等待线程结束
     pthread_join(control_tid, NULL);
     pthread_join(gui_tid, NULL);
-    tk_debug("game over(%u)!\n", tk_shared_game_state.game_time);
+    tk_debug("game over(%us)!\n", ((tk_shared_game_state.game_time * RENDER_FPS_MS) / 1000));
     return 0;
 }

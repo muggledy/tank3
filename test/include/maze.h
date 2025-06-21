@@ -52,5 +52,6 @@ extern int is_grid_valid(Grid *g);
 #define MAZE_SAME_GRID      2
 extern int is_two_grids_adjacent(Grid *g1, Grid *g2);
 extern int is_two_grids_connected(Maze* maze, Grid *g1, Grid *g2);
+extern int is_two_grids_the_same(Grid *g1, Grid *g2);
 
 #endif

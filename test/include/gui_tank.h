@@ -20,6 +20,8 @@ typedef struct {
     MusicEntry move;
 #define DEFAULT_TANK_EXPLODE_MUSIC_PATH "./assets/tank_explode.wav"
     MusicEntry explode;
+#define DEFAULT_TANK_SHOOT_MUSIC_PATH "./assets/tank_shoot.wav"
+    MusicEntry shoot;
 } TankMusic;
 
 extern KeyValue tk_key_value;
@@ -88,6 +90,7 @@ extern void render_tank(SDL_Renderer* renderer, Tank* tank);
 #define draw_tank render_tank
 extern int check_resource_file();
 extern void gui_init_tank(Tank *tank);
+extern void gui_init_all_tank();
 
 extern void notify_control_thread_exit();
 // extern void send_key_to_control_thread(int key_type, int key_value);

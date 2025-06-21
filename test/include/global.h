@@ -4,9 +4,9 @@
 #define true  1
 #define false 0
 
-#define SET_FLAG(obj, field, flag) (obj)->field |= flag
-#define CLR_FLAG(obj, field, flag) (obj)->field &= (~flag)
-#define TST_FLAG(obj, field, flag) ((obj)->field & flag)
+#define SET_FLAG(obj, field, flag) (obj)->field |= (flag)
+#define CLR_FLAG(obj, field, flag) (obj)->field &= (~(flag))
+#define TST_FLAG(obj, field, flag) ((obj)->field & (flag))
 
 #define MAX(a, b) ((a) >= (b) ? (a) : (b))
 #define MIN(a, b) ((a) <= (b) ? (a) : (b))

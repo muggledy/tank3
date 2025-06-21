@@ -13,6 +13,7 @@
 #define DEBUG_TANK_COLLISION  0
 #define DEBUG_SHELL_COLLISION 0
 #define DEBUG_GUI_THREAD_DETAIL 0
+#define DEBUG_ENEMY_MUGGLE_TANK 1
 
 extern void tk_debug_internal(int control, const char *format, ...);
 #define tk_debug(format, ...) tk_debug_internal(1, format, ##__VA_ARGS__)

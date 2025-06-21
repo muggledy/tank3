@@ -210,8 +210,6 @@ void notify_event_loop() {
     write(tk_pipe_fds[1], &c, 1);
 }
 
-KeyValue tk_key_value_for_control;
-
 // 处理来自本地GUI线程或其他（TODO：如网络）的坦克事件
 void handle_event(Event* event) {
     if (!event) return;
@@ -228,16 +226,16 @@ void handle_event(Event* event) {
         tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "recv key %d down\n", event->data.key);
         switch (event->data.key) {
             case KEY_W:
-                SET_FLAG(&tk_key_value_for_control, mask, TK_KEY_W_ACTIVE);
+                SET_FLAG(&(mytankptr->key_value_for_control), mask, TK_KEY_W_ACTIVE);
                 break;
             case KEY_S:
-                SET_FLAG(&tk_key_value_for_control, mask, TK_KEY_S_ACTIVE);
+                SET_FLAG(&(mytankptr->key_value_for_control), mask, TK_KEY_S_ACTIVE);
                 break;
             case KEY_A:
-                SET_FLAG(&tk_key_value_for_control, mask, TK_KEY_A_ACTIVE);
+                SET_FLAG(&(mytankptr->key_value_for_control), mask, TK_KEY_A_ACTIVE);
                 break;
             case KEY_D:
-                SET_FLAG(&tk_key_value_for_control, mask, TK_KEY_D_ACTIVE);
+                SET_FLAG(&(mytankptr->key_value_for_control), mask, TK_KEY_D_ACTIVE);
                 break;
             case KEY_SPACE:
                 // tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "发射子弹\n");
@@ -245,8 +243,8 @@ void handle_event(Event* event) {
                 // break;
                 return;
         }
-        handle_key(mytankptr, &tk_key_value_for_control);
-        print_key_value(&tk_key_value_for_control);
+        handle_key(mytankptr, &(mytankptr->key_value_for_control));
+        print_key_value(&(mytankptr->key_value_for_control));
     }
     break;
     case EVENT_KEY_RELEASE:
@@ -254,20 +252,20 @@ void handle_event(Event* event) {
         tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "recv key %d up\n", event->data.key);
         switch (event->data.key) {
             case KEY_W:
-                CLR_FLAG(&tk_key_value_for_control, mask, TK_KEY_W_ACTIVE);
+                CLR_FLAG(&(mytankptr->key_value_for_control), mask, TK_KEY_W_ACTIVE);
                 break;
             case KEY_S:
-                CLR_FLAG(&tk_key_value_for_control, mask, TK_KEY_S_ACTIVE);
+                CLR_FLAG(&(mytankptr->key_value_for_control), mask, TK_KEY_S_ACTIVE);
                 break;
             case KEY_A:
-                CLR_FLAG(&tk_key_value_for_control, mask, TK_KEY_A_ACTIVE);
+                CLR_FLAG(&(mytankptr->key_value_for_control), mask, TK_KEY_A_ACTIVE);
                 break;
             case KEY_D:
-                CLR_FLAG(&tk_key_value_for_control, mask, TK_KEY_D_ACTIVE);
+                CLR_FLAG(&(mytankptr->key_value_for_control), mask, TK_KEY_D_ACTIVE);
                 break;
         }
-        handle_key(mytankptr, &tk_key_value_for_control);
-        print_key_value(&tk_key_value_for_control);
+        handle_key(mytankptr, &(mytankptr->key_value_for_control));
+        print_key_value(&(mytankptr->key_value_for_control));
     }
     break;
     case EVENT_QUIT:
@@ -314,5 +312,6 @@ struct event* add_timer_event(int timeout_ms, void (*callback)(void*), void* arg
 
 void update_game_state_timer_handle() {
     tk_debug_internal(DEBUG_EVENT_LOOP, "update_game_state_timer_handle\n");
+    update_muggledy_enemy_position();
     update_all_shell_movement_position();
 }

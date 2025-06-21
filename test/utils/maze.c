@@ -52,6 +52,10 @@ int is_two_grids_connected(Maze* maze, Grid *g1, Grid *g2) {
     return maze->map[grid_id(g1)][grid_id(g2)];
 }
 
+int is_two_grids_the_same(Grid *g1, Grid *g2) {
+    return ((g1->x == g2->x) && (g1->y == g2->y));
+}
+
 // 生成随机数
 int get_random_number(int min, int max) {
     return rand() % (max - min + 1) + min;

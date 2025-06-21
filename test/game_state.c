@@ -126,14 +126,36 @@ Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_
         tk_debug("Error: %s id_pool_allocate failed\n", __func__);
         goto error;
     }
+    tank->role = role;
+    if (TANK_ROLE_SELF == tank->role) {
+        tank->steps_to_escape = NULL;
+        tank->map_vis = NULL;
+    } else if (TANK_ROLE_ENEMY_MUGGLE == tank->role) {
+        tank->steps_to_escape = malloc(sizeof(tk_uint32_t) * STEPS_TO_ESCAPE_NUM);
+        if (!tank->steps_to_escape) {
+            goto error;
+        }
+        memset(tank->steps_to_escape, 0, sizeof(tk_uint32_t) * STEPS_TO_ESCAPE_NUM);
+        tank->map_vis = malloc(VERTICAL_GRID_NUMBER * sizeof(*tank->map_vis));
+        if (!tank->map_vis) {
+            goto error;
+        }
+#define CLEAN_TANK_MAP_VIS(tank) \
+do{ \
+    if (tank->map_vis) { \
+        memset(tank->map_vis, 0, VERTICAL_GRID_NUMBER * sizeof(*tank->map_vis)); \
+    } \
+}while(0)
+        CLEAN_TANK_MAP_VIS(tank);
+    }
     tank->position = pos;
     tank->angle_deg = angle_deg;
-    tank->role = role;
     SET_FLAG(tank, flags, TANK_ALIVE);
     // tank->basic_color = (void *)((TANK_ROLE_SELF == tank->role) ? ID2COLORPTR(TK_BLUE) : ID2COLORPTR(TK_RED));
     tank->health = tank->max_health = (TANK_ROLE_SELF == tank->role) ? 500 : 250;
     tank->speed = TANK_INIT_SPEED;
     tank->max_shell_num = DEFAULT_TANK_SHELLS_MAX_NUM;
+    tank->current_grid = (Grid){-1, -1};
     calculate_tank_outline(&tank->position, TANK_LENGTH, TANK_WIDTH+4, calc_corrected_angle_deg(tank->angle_deg), &tank->practical_outline); // see handle_key()
     TAILQ_INIT(&tank->shell_list);
 
@@ -148,8 +170,15 @@ Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_
     tk_debug("create a tank(name:%s, id:%lu, total size:%luB, ExplodeEffect's size: %luB) success, total tank num %u\n", 
         tank->name, tank->id, sizeof(Tank), sizeof(tank->explode_effect), tank_num+1);
     return tank;
+
 error:
     tk_debug("Error: create tank %s failed\n", name);
+    if (tank->map_vis) {
+        free(tank->map_vis);
+    }
+    if (tank->steps_to_escape) {
+        free(tank->steps_to_escape);
+    }
     if (tank) {
         free(tank);
     }
@@ -190,6 +219,12 @@ void delete_tank(Tank *tank, int dereference) {
     id_pool_release(tk_idpool, tank->id);
     tank->id = 0;
     destroy_spinlock(&tank->spinlock);
+    if (tank->map_vis) {
+        free(tank->map_vis);
+    }
+    if (tank->steps_to_escape) {
+        free(tank->steps_to_escape);
+    }
     free(tank);
 }
 
@@ -330,6 +365,22 @@ Point get_pos_by_grid(Grid *grid, int pos_dir) {
     } else {
         return (Point){(grid->x+1) * GRID_SIZE + tk_maze_offset.x, (grid->y+1) * GRID_SIZE + tk_maze_offset.y};
     }
+}
+
+Point get_center_pos_by_grid(Grid *grid) {
+    Point pos0 = get_pos_by_grid(grid, 0);
+    Point pos1 = get_pos_by_grid(grid, 3);
+
+    return (Point){(pos0.x + pos1.x) / 2, (pos0.y + pos1.y) / 2};
+}
+
+/*判断坦克是否靠近指定网格的中心点*/
+int is_tank_near_grid_center(Tank *tank, Grid *grid) {
+    Point center = get_center_pos_by_grid(grid);
+    if ((abs((tank->position.x - center.x)) <= 10) && (abs((tank->position.y - center.y)) <= 10)) {
+        return 1;
+    }
+    return 0;
 }
 
 // 计算斜率，角度输入范围 0~360（正北为0°，顺时针增加）
@@ -908,7 +959,7 @@ void handle_key(Tank *tank, KeyValue *key_value) {
     // tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "grid:(%d, %d)/%d, (%d, %d)/%d, (%d, %d)/%d, (%d, %d)/%d\n", 
     //     POS(grid0), grid_id(&grid0), POS(grid1), grid_id(&grid1), POS(grid2), grid_id(&grid2), POS(grid3), grid_id(&grid3));
 
-    tank->collision_flag = 0;
+    tank->collision_flag &= 0xF0;
     if (is_two_pos_transfer_through_wall(&outline.righttop, &outline.rightbottom)) {
         tk_debug_internal(DEBUG_TANK_COLLISION, "前方发生碰撞\n");
         SET_FLAG(tank, collision_flag, COLLISION_FRONT);
@@ -940,8 +991,10 @@ Shell* create_shell_for_tank(Tank *tank) {
     }
     if (shell_num >= tank->max_shell_num) {
         tk_debug("Warn: can't create more shells(%u>=MAX/%u) for tank(%s)\n", shell_num, tank->max_shell_num, tank->name);
+        SET_FLAG(tank, flags, TANK_FORBID_SHOOT);
         return NULL;
     }
+    CLR_FLAG(tank, flags, TANK_FORBID_SHOOT);
 
     shell = malloc(sizeof(Shell));
     if (!shell) {
@@ -962,8 +1015,12 @@ Shell* create_shell_for_tank(Tank *tank) {
     lock(&tank->spinlock);
     TAILQ_INSERT_HEAD(&tank->shell_list, shell, chain);
     unlock(&tank->spinlock);
+    shell_num += 1;
     tk_debug("create a shell(id:%lu) at (%f,%f) for tank(%s) success, the tank now has %u shells\n", shell->id, 
-        POS(shell->position), tank->name, shell_num+1);
+        POS(shell->position), tank->name, shell_num);
+    if (shell_num >= tank->max_shell_num) {
+        SET_FLAG(tank, flags, TANK_FORBID_SHOOT);
+    }
     return shell;
 error:
     tk_debug("Error: create shell for tank(%s) failed\n", tank->name);
@@ -1484,7 +1541,289 @@ void update_all_shell_movement_position() {
                 TAILQ_REMOVE(&tank->shell_list, shell, chain);
                 unlock(&tank->spinlock);
                 delete_shell(shell, 0);
+                CLR_FLAG(tank, flags, TANK_FORBID_SHOOT);
             }
+        }
+    }
+}
+
+/*根据当前坦克位置，随机获取可以移动的方向（上：1，下：2，左：3，右：4），参数
+no_backtracking为True表示禁止走回头路，譬如坦克从左侧来，然后又选择往左侧去，那就不许
+不让走回头路虽然好一点，但是其他可选方向依然是随机选择，导致坦克经常限于某一局部区域移动，
+如何更智能地选取方向？答案就是增加全局网格是否访问过的标记数据，优先选取尚未探访过的网格方向！*/
+int get_movable_direction(Tank *tank, int no_backtracking) {
+    Grid grid, next;
+    int option[4] = {0}, option_num = 0; // 移动方向待选列表
+    int from_dir = 0; // 坦克来的方向
+    int i = 0;
+
+    if (no_backtracking) {
+        if ((tank->angle_deg > 45) && (tank->angle_deg < 135)) {
+            from_dir = 3;
+        } else if ((tank->angle_deg > 135) && (tank->angle_deg < 225)) {
+            from_dir = 1;
+        } else if ((tank->angle_deg > 225) && (tank->angle_deg < 315)) {
+            from_dir = 4;
+        } else if (((tank->angle_deg > 315) && (tank->angle_deg <= 360)) || ((tank->angle_deg >= 0) && (tank->angle_deg < 45))) {
+            from_dir = 2;
+        }
+    }
+
+    if (!tank) return 0;
+    grid = get_grid_by_tank_position(&tank->position);
+    if (grid.y > 0) {
+        next.x = grid.x;
+        next.y = grid.y - 1;
+        if (is_two_grids_connected(&tk_shared_game_state.maze, &grid, &next)) {
+            if ((no_backtracking && (from_dir != 1)) || (!no_backtracking)) {
+                option[option_num++] = 1;
+            }
+        }
+    }
+    if ((grid.y + 1) < VERTICAL_GRID_NUMBER) {
+        next.x = grid.x;
+        next.y = grid.y + 1;
+        if (is_two_grids_connected(&tk_shared_game_state.maze, &grid, &next)) {
+            if ((no_backtracking && (from_dir != 2)) || (!no_backtracking)) {
+                option[option_num++] = 2;
+            }
+        }
+    }
+    if (grid.x > 0) {
+        next.x = grid.x - 1;
+        next.y = grid.y;
+        if (is_two_grids_connected(&tk_shared_game_state.maze, &grid, &next)) {
+            if ((no_backtracking && (from_dir != 3)) || (!no_backtracking)) {
+                option[option_num++] = 3;
+            }
+        }
+    }
+    if ((grid.x + 1) < HORIZON_GRID_NUMBER) {
+        next.x = grid.x + 1;
+        next.y = grid.y;
+        if (is_two_grids_connected(&tk_shared_game_state.maze, &grid, &next)) {
+            if ((no_backtracking && (from_dir != 4)) || (!no_backtracking)) {
+                option[option_num++] = 4;
+            }
+        }
+    }
+    if (option_num == 0) {
+        return 0; // 失败：没有找到可移动方向（只有在no_backtracking开启情况下才可能失败）
+    }
+    if (tank->map_vis) {
+        int min_map_vis_val = 0;
+        int min_map_vis_ind = 0;
+        for (i=0; i<option_num; i++) {
+            if (option[i] == 1) {
+                next.x = grid.x;
+                next.y = grid.y - 1;
+            } else if (option[i] == 2) {
+                next.x = grid.x;
+                next.y = grid.y + 1;
+            } else if (option[i] == 3) {
+                next.x = grid.x - 1;
+                next.y = grid.y;
+            } else if (option[i] == 4) {
+                next.x = grid.x + 1;
+                next.y = grid.y;
+            }
+            if (!tank->map_vis[next.x][next.y]) { //从未访问过的网格
+                tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "get_movable_direction %d(weight:0)\n", option[i]);
+                return option[i];
+            }
+            //选取一个访问量最少的网格
+            if ((min_map_vis_val == 0) || (tank->map_vis[next.x][next.y] < min_map_vis_val)) {
+                min_map_vis_val = tank->map_vis[next.x][next.y];
+                min_map_vis_ind = i;
+            }
+        }
+        tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "get_movable_direction %d(weight:%u)\n", option[min_map_vis_ind], min_map_vis_val);
+        return option[min_map_vis_ind];
+    }
+    return option[random_range(0, option_num-1)];
+}
+
+void save_steps_to_escape(Tank *tank, int index, int num, int direction) {
+    int i = 0;
+    if ((index < 0) || (index >= STEPS_TO_ESCAPE_NUM)) {
+        return;
+    }
+    for (i=index; i<STEPS_TO_ESCAPE_NUM; i++) {
+        if (num >= 16) {
+            tank->steps_to_escape[i] = (15 << 4) | (direction & 0x0F);
+            num -= 15;
+        } else {
+            tank->steps_to_escape[i] = (num << 4) | (direction & 0x0F);
+            return;
+        }
+    }
+}
+
+void reset_rotation_direction_for_tank(Tank *tank, int index) {
+    int movable_direction = 0;
+    int t = 0;
+    { // 怎么旋转？答：朝着四周没有墙壁的某个方向旋转，尽量避免往墙上撞
+        movable_direction = get_movable_direction(tank, 1);
+        if (!movable_direction) {
+            movable_direction = get_movable_direction(tank, 0);
+        }
+        if (!movable_direction) {
+            tank->steps_to_escape[index] = (random_range(6, 24) << 4) | (MOVE_RIGHT);
+        } else {
+            if (movable_direction == 1) {
+                if (tank->angle_deg > 180) {
+                    t = ((int)((360 - tank->angle_deg) / PER_TICK_ANGLE_DEG_CHANGE + 0.5));
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向右旋转%d步以向上\n", t);
+                    save_steps_to_escape(tank, index, t, MOVE_RIGHT);
+                } else {
+                    t = ((int)((tank->angle_deg) / PER_TICK_ANGLE_DEG_CHANGE + 0.5));
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向左旋转%d步以向上\n", t);
+                    save_steps_to_escape(tank, index, t, MOVE_LEFT);
+                }
+            } else if (movable_direction == 2) {
+                if (tank->angle_deg > 180) {
+                    t = ((int)((tank->angle_deg - 180) / PER_TICK_ANGLE_DEG_CHANGE + 0.5));
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向左旋转%d步以向下\n", t);
+                    save_steps_to_escape(tank, index, t, MOVE_LEFT);
+                } else {
+                    t = ((int)((180 - tank->angle_deg) / PER_TICK_ANGLE_DEG_CHANGE + 0.5));
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向右旋转%d步以向下\n", t);
+                    save_steps_to_escape(tank, index, t, MOVE_RIGHT);
+                }
+            } else if (movable_direction == 3) {
+                if ((tank->angle_deg >= 90) && (tank->angle_deg <= 270)) {
+                    t = ((int)((270 - tank->angle_deg) / PER_TICK_ANGLE_DEG_CHANGE + 0.5));
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向右旋转%d步以向左\n", t);
+                    save_steps_to_escape(tank, index, t, MOVE_RIGHT);
+                } else {
+                    if ((tank->angle_deg >= 0) && (tank->angle_deg < 90)) {
+                        t = ((int)((90 + tank->angle_deg) / PER_TICK_ANGLE_DEG_CHANGE + 0.5));
+                        tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向左旋转%d步以向左\n", t);
+                        save_steps_to_escape(tank, index, t, MOVE_LEFT);
+                    } else {
+                        t = ((int)((tank->angle_deg - 270) / PER_TICK_ANGLE_DEG_CHANGE + 0.5));
+                        tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向左旋转%d步以向左\n", t);
+                        save_steps_to_escape(tank, index, t, MOVE_LEFT);
+                    }
+                }
+            } else if (movable_direction == 4) {
+                if ((tank->angle_deg >= 90) && (tank->angle_deg <= 270)) {
+                    t = ((int)((tank->angle_deg - 90) / PER_TICK_ANGLE_DEG_CHANGE + 0.5));
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向左旋转%d步以向右\n", t);
+                    save_steps_to_escape(tank, index, t, MOVE_LEFT);
+                } else {
+                    if ((tank->angle_deg >= 0) && (tank->angle_deg < 90)) {
+                        t = ((int)((90 - tank->angle_deg) / PER_TICK_ANGLE_DEG_CHANGE + 0.5));
+                        tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向右旋转%d步以向右\n", t);
+                        save_steps_to_escape(tank, index, t, MOVE_RIGHT);
+                    } else {
+                        t = ((int)((450 - tank->angle_deg) / PER_TICK_ANGLE_DEG_CHANGE + 0.5));
+                        tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向左旋转%d步以向右\n", t);
+                        save_steps_to_escape(tank, index, t, MOVE_RIGHT);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 傻瓜坦克随机自由移动并发射炮弹
+void update_muggledy_enemy_position() {
+    Tank *tank = NULL, *tt = NULL;
+    tk_float32_t new_angle_deg = 0;
+    int i = 0;
+    Grid grid;
+    int index = 0;
+    // if ((tk_shared_game_state.game_time % 2) == 0) {
+    //     return;
+    // }
+
+    TAILQ_FOREACH_SAFE(tank, &tk_shared_game_state.tank_list, chain, tt) {
+        if (tank->role != TANK_ROLE_ENEMY_MUGGLE) {
+            continue;
+        }
+        if ((tank->health <= 0) || !TST_FLAG(tank, flags, TANK_ALIVE)) {
+            continue;
+        }
+        if ((tank->collision_flag << 4) != 0) { // 如果前进方向遇到阻塞，就尝试计划脱困
+            tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s前行遇阻，尝试向后移动并旋转脱困(collision_flag:%u, position:(%f,%f), angle_deg:%f)\n", 
+                tank->name, tank->collision_flag, POS(tank->position), tank->angle_deg);
+            /*设置脱困步骤*/
+            for (i=0; i<STEPS_TO_ESCAPE_NUM; i++) {
+                tank->steps_to_escape[i] = 0;
+            }
+            tank->steps_to_escape[0] = (random_range(3, 6) << 4) | (MOVE_BACK);
+            tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向后%d步\n", tank->steps_to_escape[0] >> 4);
+            reset_rotation_direction_for_tank(tank, 1);
+            /*本次先向后退一步*/
+            tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "(脱困中)%s向后移动\n", tank->name);
+            tank->key_value_for_control.mask = 0;
+            SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_S_ACTIVE);
+            tank->steps_to_escape[0] = (((tank->steps_to_escape[0] >> 4) - 1) << 4) | (MOVE_BACK);
+            handle_key(tank, &(tank->key_value_for_control));
+            if ((tank->collision_flag << 4) != 0) { // 向后遇阻，重新调整脱困方案
+                if (random_range(0,1) == 1) {
+                    tank->steps_to_escape[0] = (random_range(3, 6) << 4) | (MOVE_RIGHT);
+                } else {
+                    tank->steps_to_escape[0] = (random_range(3, 6) << 4) | (MOVE_LEFT);
+                }
+            }
+        } else {
+            for (i=0; i<STEPS_TO_ESCAPE_NUM; i++) {
+                if (tank->steps_to_escape[i] == 0) {
+                    continue;
+                }
+                if (((tank->steps_to_escape[i] & 0x0F) == MOVE_FRONT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "(脱困中)%s向前移动\n", tank->name);
+                    tank->key_value_for_control.mask = 0;
+                    SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_W_ACTIVE);
+                    tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_FRONT);
+                    handle_key(tank, &(tank->key_value_for_control));
+                    goto iter_next_tank;
+                } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_RIGHT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "(脱困中)%s向右移动(angle_deg:%f)\n", tank->name, tank->angle_deg);
+                    tank->key_value_for_control.mask = 0;
+                    SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_D_ACTIVE);
+                    tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_RIGHT);
+                    handle_key(tank, &(tank->key_value_for_control));
+                    goto iter_next_tank;
+                } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_LEFT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "(脱困中)%s向左移动(angle_deg:%f)\n", tank->name, tank->angle_deg);
+                    tank->key_value_for_control.mask = 0;
+                    SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_A_ACTIVE);
+                    tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_LEFT);
+                    handle_key(tank, &(tank->key_value_for_control));
+                    goto iter_next_tank;
+                } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_BACK) && ((tank->steps_to_escape[i] >> 4) > 0)) {
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "(脱困中)%s向后移动\n", tank->name);
+                    tank->key_value_for_control.mask = 0;
+                    SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_S_ACTIVE);
+                    tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_BACK);
+                    handle_key(tank, &(tank->key_value_for_control));
+                    goto iter_next_tank;
+                }
+            }
+            for (i=0; i<STEPS_TO_ESCAPE_NUM; i++) {
+                tank->steps_to_escape[i] = 0;
+            }
+            grid = get_grid_by_tank_position(&tank->position);
+            if (!is_two_grids_the_same(&tank->current_grid, &grid)) {
+                tank->current_grid = grid;
+                CLR_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY);
+                tank->map_vis[tank->current_grid.x][tank->current_grid.y] += 1;
+            }
+            if (!TST_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY) && is_tank_near_grid_center(tank, &grid)) { // 这里near判断有点严格了（即如果坦克稍微走偏了就可能会被认为不靠近中心），不过也没关系
+                /*每当到达一个新的网格中心位置处，就需要重新决策前进方向*/
+                SET_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY);
+                tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s重新选择方向(current_grid:(%d,%d))\n", tank->name, POS(tank->current_grid));
+                reset_rotation_direction_for_tank(tank, 0);
+            }
+            tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向前移动(angle_deg:%f, pos:(%f,%f))\n", tank->name, tank->angle_deg, POS(tank->position));
+            tank->key_value_for_control.mask = 0;
+            SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_W_ACTIVE); // 默认向前移动
+            handle_key(tank, &(tank->key_value_for_control));
+iter_next_tank:
+            continue;
         }
     }
 }
