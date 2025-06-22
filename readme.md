@@ -1,10 +1,7 @@
-依赖：
-```shell
-sudo apt install freeglut3-dev
-```
+# tank3
 
-运行：
-```shell
-make
-./PainterEngineEXE
-```
+采用线程分离思想，tank3程序主要包含两个子线程：
+1. GUI线程（SDL2）：负责渲染游戏画面、处理全部用户输入事件
+2. 由Libevent驱动的控制线程：负责游戏逻辑计算（坦克移动、碰撞检测等）
+
+更多待补充...

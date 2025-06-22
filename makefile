@@ -2,7 +2,7 @@
 #`make` or `make SANITIZE=1`
 #####################################################
 target := tank.exe
-project_path := ./test
+project_path := ./src
 #####################################################
 # 默认不启用 AddressSanitizer
 SANITIZE ?= 0
