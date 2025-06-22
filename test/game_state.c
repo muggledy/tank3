@@ -100,6 +100,7 @@ Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_
     Tank *tank = NULL;
     Tank *t = NULL;
     tk_uint8_t tank_num = 0;
+    int map_vis_bytes = 0;
 
     TAILQ_FOREACH(t, &tk_shared_game_state.tank_list, chain) {
         tank_num++;
@@ -136,14 +137,16 @@ Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_
             goto error;
         }
         memset(tank->steps_to_escape, 0, sizeof(tk_uint32_t) * STEPS_TO_ESCAPE_NUM);
-        tank->map_vis = malloc(VERTICAL_GRID_NUMBER * sizeof(*tank->map_vis));
+        map_vis_bytes = VERTICAL_GRID_NUMBER * sizeof(*tank->map_vis);
+        tank->map_vis = malloc(map_vis_bytes);
         if (!tank->map_vis) {
             goto error;
         }
+        tk_debug("malloc %d(B) for tank(%s)->map_vis, items %d\n", map_vis_bytes, tank->name, map_vis_bytes/sizeof(tk_uint32_t));
 #define CLEAN_TANK_MAP_VIS(tank) \
 do{ \
     if (tank->map_vis) { \
-        memset(tank->map_vis, 0, VERTICAL_GRID_NUMBER * sizeof(*tank->map_vis)); \
+        memset(tank->map_vis, 0, map_vis_bytes); \
     } \
 }while(0)
         CLEAN_TANK_MAP_VIS(tank);
@@ -167,8 +170,8 @@ do{ \
     unlock(&tk_shared_game_state.spinlock);
 
     init_spinlock(&tank->spinlock);
-    tk_debug("create a tank(name:%s, id:%lu, total size:%luB, ExplodeEffect's size: %luB) success, total tank num %u\n", 
-        tank->name, tank->id, sizeof(Tank), sizeof(tank->explode_effect), tank_num+1);
+    tk_debug("create a tank(name:%s, id:%lu, total size:%luB, ExplodeEffect's size: %luB) %p success, total tank num %u\n", 
+        tank->name, tank->id, sizeof(Tank), sizeof(tank->explode_effect), tank, tank_num+1);
     return tank;
 
 error:
@@ -214,8 +217,8 @@ void delete_tank(Tank *tank, int dereference) {
         delete_shell(shell, 0);
         shell_num++;
     }
-    tk_debug("tank(id:%lu) %s(flags:%lu, score:%u, health:%u) is deleted, and free %u shells\n", 
-        (tank)->id, (tank)->name, (tank)->flags, (tank)->score, (tank)->health, shell_num);
+    tk_debug("tank(%p, id:%lu) %s(flags:%lu, score:%u, health:%u) is deleted, and free %u shells\n", 
+        tank, (tank)->id, (tank)->name, (tank)->flags, (tank)->score, (tank)->health, shell_num);
     id_pool_release(tk_idpool, tank->id);
     tank->id = 0;
     destroy_spinlock(&tank->spinlock);
@@ -1016,7 +1019,7 @@ Shell* create_shell_for_tank(Tank *tank) {
     TAILQ_INSERT_HEAD(&tank->shell_list, shell, chain);
     unlock(&tank->spinlock);
     shell_num += 1;
-    tk_debug("create a shell(id:%lu) at (%f,%f) for tank(%s) success, the tank now has %u shells\n", shell->id, 
+    tk_debug("create a shell(id:%lu) %p at (%f,%f) for tank(%s) success, the tank now has %u shells\n", shell->id, shell, 
         POS(shell->position), tank->name, shell_num);
     if (shell_num >= tank->max_shell_num) {
         SET_FLAG(tank, flags, TANK_FORBID_SHOOT);
@@ -1034,7 +1037,7 @@ void delete_shell(Shell *shell, int dereference) {
     if (!shell) return;
 
     Shell *s = NULL, *t = NULL;
-    tk_debug("shell(id:%lu) of tank(%s) is deleted\n", shell->id, ((Tank*)(shell->tank_owner))->name);
+    tk_debug("shell(%p, id:%lu) of tank(%s) is deleted\n", shell, shell->id, ((Tank*)(shell->tank_owner))->name);
     if (dereference) {
         TAILQ_FOREACH_SAFE(s, &((Tank*)(shell->tank_owner))->shell_list, chain, t) {
             if (s != shell) {
@@ -1550,7 +1553,7 @@ void update_all_shell_movement_position() {
 /*根据当前坦克位置，随机获取可以移动的方向（上：1，下：2，左：3，右：4），参数
 no_backtracking为True表示禁止走回头路，譬如坦克从左侧来，然后又选择往左侧去，那就不许
 不让走回头路虽然好一点，但是其他可选方向依然是随机选择，导致坦克经常限于某一局部区域移动，
-如何更智能地选取方向？答案就是增加全局网格是否访问过的标记数据，优先选取尚未探访过的网格方向！*/
+如何更智能地选取方向？答案就是增加全局网格是否访问过的标记数据，优先选取尚未探访过的或访问量最少的网格方向*/
 int get_movable_direction(Tank *tank, int no_backtracking) {
     Grid grid, next;
     int option[4] = {0}, option_num = 0; // 移动方向待选列表
@@ -1627,13 +1630,13 @@ int get_movable_direction(Tank *tank, int no_backtracking) {
                 next.x = grid.x + 1;
                 next.y = grid.y;
             }
-            if (!tank->map_vis[next.x][next.y]) { //从未访问过的网格
+            if (!tank->map_vis[next.y][next.x]) { //从未访问过的网格
                 tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "get_movable_direction %d(weight:0)\n", option[i]);
                 return option[i];
             }
             //选取一个访问量最少的网格
-            if ((min_map_vis_val == 0) || (tank->map_vis[next.x][next.y] < min_map_vis_val)) {
-                min_map_vis_val = tank->map_vis[next.x][next.y];
+            if ((min_map_vis_val == 0) || (tank->map_vis[next.y][next.x] < min_map_vis_val)) {
+                min_map_vis_val = tank->map_vis[next.y][next.x];
                 min_map_vis_ind = i;
             }
         }
@@ -1734,9 +1737,6 @@ void update_muggledy_enemy_position() {
     int i = 0;
     Grid grid;
     int index = 0;
-    // if ((tk_shared_game_state.game_time % 2) == 0) {
-    //     return;
-    // }
 
     TAILQ_FOREACH_SAFE(tank, &tk_shared_game_state.tank_list, chain, tt) {
         if (tank->role != TANK_ROLE_ENEMY_MUGGLE) {
@@ -1756,7 +1756,7 @@ void update_muggledy_enemy_position() {
             tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向后%d步\n", tank->steps_to_escape[0] >> 4);
             reset_rotation_direction_for_tank(tank, 1);
             /*本次先向后退一步*/
-            tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "(脱困中)%s向后移动\n", tank->name);
+            tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向后移动\n", tank->name);
             tank->key_value_for_control.mask = 0;
             SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_S_ACTIVE);
             tank->steps_to_escape[0] = (((tank->steps_to_escape[0] >> 4) - 1) << 4) | (MOVE_BACK);
@@ -1774,28 +1774,28 @@ void update_muggledy_enemy_position() {
                     continue;
                 }
                 if (((tank->steps_to_escape[i] & 0x0F) == MOVE_FRONT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
-                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "(脱困中)%s向前移动\n", tank->name);
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向前移动\n", tank->name);
                     tank->key_value_for_control.mask = 0;
                     SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_W_ACTIVE);
                     tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_FRONT);
                     handle_key(tank, &(tank->key_value_for_control));
                     goto iter_next_tank;
                 } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_RIGHT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
-                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "(脱困中)%s向右移动(angle_deg:%f)\n", tank->name, tank->angle_deg);
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向右移动(angle_deg:%f)\n", tank->name, tank->angle_deg);
                     tank->key_value_for_control.mask = 0;
                     SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_D_ACTIVE);
                     tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_RIGHT);
                     handle_key(tank, &(tank->key_value_for_control));
                     goto iter_next_tank;
                 } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_LEFT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
-                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "(脱困中)%s向左移动(angle_deg:%f)\n", tank->name, tank->angle_deg);
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向左移动(angle_deg:%f)\n", tank->name, tank->angle_deg);
                     tank->key_value_for_control.mask = 0;
                     SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_A_ACTIVE);
                     tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_LEFT);
                     handle_key(tank, &(tank->key_value_for_control));
                     goto iter_next_tank;
                 } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_BACK) && ((tank->steps_to_escape[i] >> 4) > 0)) {
-                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "(脱困中)%s向后移动\n", tank->name);
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向后移动\n", tank->name);
                     tank->key_value_for_control.mask = 0;
                     SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_S_ACTIVE);
                     tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_BACK);
@@ -1810,7 +1810,7 @@ void update_muggledy_enemy_position() {
             if (!is_two_grids_the_same(&tank->current_grid, &grid)) {
                 tank->current_grid = grid;
                 CLR_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY);
-                tank->map_vis[tank->current_grid.x][tank->current_grid.y] += 1;
+                tank->map_vis[tank->current_grid.y][tank->current_grid.x] += 1;
             }
             if (!TST_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY) && is_tank_near_grid_center(tank, &grid)) { // 这里near判断有点严格了（即如果坦克稍微走偏了就可能会被认为不靠近中心），不过也没关系
                 /*每当到达一个新的网格中心位置处，就需要重新决策前进方向*/
@@ -1822,6 +1822,9 @@ void update_muggledy_enemy_position() {
             tank->key_value_for_control.mask = 0;
             SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_W_ACTIVE); // 默认向前移动
             handle_key(tank, &(tank->key_value_for_control));
+            // if ((tk_shared_game_state.game_time % 20) == 0) {
+            //     create_shell_for_tank(tank);
+            // }
 iter_next_tank:
             continue;
         }

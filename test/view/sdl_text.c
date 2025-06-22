@@ -15,6 +15,9 @@ int cache_count = 0;
 unsigned int total_not_hit_text_cache_num = 0;
 unsigned int total_not_hit_font_cache_num = 0;
 
+#define MAX_FONTS 5
+FontCacheItem font_cache[MAX_FONTS] = {0};
+
 // 初始化SDL和TTF
 int init(SDL_Window** window, SDL_Renderer** renderer) {
     // 初始化SDL
@@ -55,6 +58,8 @@ int init_ttf() {
         tk_debug("SDL_ttf初始化失败: %s\n", TTF_GetError());
         return -1;
     }
+    memset(font_cache, 0, sizeof(font_cache));
+    memset(text_cache, 0, sizeof(text_cache));
     return 0;
 }
 
@@ -213,9 +218,6 @@ void cleanup(SDL_Window* window, SDL_Renderer* renderer) {
     SDL_Quit();
 }
 
-#define MAX_FONTS 5
-FontCacheItem font_cache[MAX_FONTS] = {0};
-
 // 获取缓存的字体（或加载新字体），注意字体路径不能发生变化！即不支持多种字体缓存，只支持单字体不同size的缓存
 TTF_Font* get_cached_font(const char* font_path, int size) {
     // 检查缓存
@@ -255,6 +257,7 @@ void clear_cached_font() {
             TTF_CloseFont(font_cache[i].font);
             font_cache[i].font = NULL;
         }
+        font_cache[i].size = 0;
     }
 }
 

@@ -135,6 +135,7 @@ void cleanup_music() { // call before cleanup_gui()
     pause_and_free_music(&(tk_music.shoot));
 
     // 关闭SDL_mixer
+    Mix_CloseAudio();
     Mix_Quit();
 }
 
