@@ -170,7 +170,7 @@ Block* get_block_positions(Maze* maze, tk_uint16_t* block_count) {
 
 // 更直观的网格墙打印函数
 void print_maze_walls(Maze* maze) {
-    tk_debug("Maze Wall Visualization:\n");
+    tk_debug("Maze Wall Visualization(%dx%d):\n", VERTICAL_GRID_NUMBER, HORIZON_GRID_NUMBER);
     
     // 打印顶部边界
     printf("+");

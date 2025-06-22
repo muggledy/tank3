@@ -92,7 +92,8 @@ typedef struct _Tank {
 #define COLLISION_BACK  0x02
 #define COLLISION_LEFT  0x04
 #define COLLISION_RIGHT 0x08
-    tk_uint8_t collision_flag; //碰撞方位标记（仅低四位用于碰撞标记，高四位用于其他用途）
+#define COLLISION_WITH_TANK 0x80
+    tk_uint8_t collision_flag; //碰撞方位标记（仅低四位用于碰撞标记，高四位用于其他用途。当前高四位的最高位用于表示坦克与其他坦克发生碰撞）
     void *basic_color; //基本颜色
     ExplodeEffect explode_effect; //爆炸效果
 #define TANK_ROLE_SELF  0
@@ -105,7 +106,7 @@ typedef struct _Tank {
     pthread_spinlock_t spinlock; // 理论上控制线程修改tank对象内容与GUI线程访问读取tank对象内容需要上锁保证正确，为了减小性能影响，此处我们暂用于保护对tank->shell_list的安全访问
     KeyValue key_value_for_control;
     /*for muggle enemy*/
-#define STEPS_TO_ESCAPE_NUM 4
+#define STEPS_TO_ESCAPE_NUM 6
 #define MOVE_FRONT 0x01
 #define MOVE_BACK  0x02
 #define MOVE_LEFT  0x04

@@ -4,6 +4,9 @@
 #include <bsd/string.h>
 #include <math.h>
 #include "tools.h"
+#include <stdbool.h>
+
+/*山与海辞别岁晚，石与月共祝春欢 —— 晓珍*/
 
 IDPool* tk_idpool = NULL;
 GameState tk_shared_game_state;
@@ -903,6 +906,8 @@ static int is_two_pos_transfer_through_wall(Point *pos1, Point *pos2) {
     return 0; // can't be here
 }
 
+extern bool is_my_tank_collide_with_other_tanks(Tank *my_tank, Rectangle *newest_outline);
+
 void handle_key(Tank *tank, KeyValue *key_value) {
     tk_float32_t backward_dir = 0;
     Rectangle outline;
@@ -963,6 +968,7 @@ void handle_key(Tank *tank, KeyValue *key_value) {
     //     POS(grid0), grid_id(&grid0), POS(grid1), grid_id(&grid1), POS(grid2), grid_id(&grid2), POS(grid3), grid_id(&grid3));
 
     tank->collision_flag &= 0xF0;
+    CLR_FLAG(tank, collision_flag, COLLISION_WITH_TANK);
     if (is_two_pos_transfer_through_wall(&outline.righttop, &outline.rightbottom)) {
         tk_debug_internal(DEBUG_TANK_COLLISION, "前方发生碰撞\n");
         SET_FLAG(tank, collision_flag, COLLISION_FRONT);
@@ -975,10 +981,14 @@ void handle_key(Tank *tank, KeyValue *key_value) {
     } else if (is_two_pos_transfer_through_wall(&outline.leftbottom, &outline.lefttop)) {
         tk_debug_internal(DEBUG_TANK_COLLISION, "后方发生碰撞\n");
         SET_FLAG(tank, collision_flag, COLLISION_BACK);
-    } else { // 未发生碰撞
-        tank->position = new_position;
-        tank->angle_deg = new_angle_deg;
-        tank->practical_outline = outline;
+    } else { // 未与墙壁发生碰撞
+        if (!is_my_tank_collide_with_other_tanks(tank, &outline)) { //未与地图上的其他坦克发生碰撞
+            tank->position = new_position;
+            tank->angle_deg = new_angle_deg;
+            tank->practical_outline = outline;
+        } else {
+            SET_FLAG(tank, collision_flag, COLLISION_WITH_TANK);
+        }
     }
     tank->outline = outline; // 将可能发生了碰撞的最新轮廓绘制出来用于debug
 }
@@ -1739,94 +1749,295 @@ void update_muggledy_enemy_position() {
     int index = 0;
 
     TAILQ_FOREACH_SAFE(tank, &tk_shared_game_state.tank_list, chain, tt) {
-        if (tank->role != TANK_ROLE_ENEMY_MUGGLE) {
-            continue;
-        }
         if ((tank->health <= 0) || !TST_FLAG(tank, flags, TANK_ALIVE)) {
             continue;
         }
-        if ((tank->collision_flag << 4) != 0) { // 如果前进方向遇到阻塞，就尝试计划脱困
-            tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s前行遇阻，尝试向后移动并旋转脱困(collision_flag:%u, position:(%f,%f), angle_deg:%f)\n", 
-                tank->name, tank->collision_flag, POS(tank->position), tank->angle_deg);
-            /*设置脱困步骤*/
-            for (i=0; i<STEPS_TO_ESCAPE_NUM; i++) {
-                tank->steps_to_escape[i] = 0;
-            }
-            tank->steps_to_escape[0] = (random_range(3, 6) << 4) | (MOVE_BACK);
-            tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向后%d步\n", tank->steps_to_escape[0] >> 4);
-            reset_rotation_direction_for_tank(tank, 1);
-            /*本次先向后退一步*/
-            tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向后移动\n", tank->name);
-            tank->key_value_for_control.mask = 0;
-            SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_S_ACTIVE);
-            tank->steps_to_escape[0] = (((tank->steps_to_escape[0] >> 4) - 1) << 4) | (MOVE_BACK);
-            handle_key(tank, &(tank->key_value_for_control));
-            if ((tank->collision_flag << 4) != 0) { // 向后遇阻，重新调整脱困方案
-                if (random_range(0,1) == 1) {
-                    tank->steps_to_escape[0] = (random_range(3, 6) << 4) | (MOVE_RIGHT);
-                } else {
-                    tank->steps_to_escape[0] = (random_range(3, 6) << 4) | (MOVE_LEFT);
+        if (TANK_ROLE_ENEMY_MUGGLE == tank->role) {
+            if (((tank->collision_flag << 4) != 0) || (TST_FLAG(tank, collision_flag, COLLISION_WITH_TANK))) { // 如果前进方向遇到阻塞，就尝试计划脱困
+                tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s前行遇阻，尝试向后移动并旋转脱困(collision_flag:%u, position:(%f,%f), angle_deg:%f)\n", 
+                    tank->name, tank->collision_flag, POS(tank->position), tank->angle_deg);
+                /*设置脱困步骤*/
+                for (i=0; i<STEPS_TO_ESCAPE_NUM; i++) {
+                    tank->steps_to_escape[i] = 0;
                 }
-            }
-        } else {
-            for (i=0; i<STEPS_TO_ESCAPE_NUM; i++) {
-                if (tank->steps_to_escape[i] == 0) {
-                    continue;
+                tank->steps_to_escape[0] = (random_range(3, 6) << 4) | (MOVE_BACK);
+                tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "计划向后%d步\n", tank->steps_to_escape[0] >> 4);
+                reset_rotation_direction_for_tank(tank, 1);
+                /*本次先向后退一步*/
+                tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向后移动\n", tank->name);
+                tank->key_value_for_control.mask = 0;
+                SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_S_ACTIVE);
+                tank->steps_to_escape[0] = (((tank->steps_to_escape[0] >> 4) - 1) << 4) | (MOVE_BACK);
+                handle_key(tank, &(tank->key_value_for_control));
+                if (((tank->collision_flag << 4) != 0) || (TST_FLAG(tank, collision_flag, COLLISION_WITH_TANK))) { // 向后遇阻，重新调整脱困方案
+                    if (random_range(0,1) == 1) {
+                        tank->steps_to_escape[0] = (random_range(3, 6) << 4) | (MOVE_RIGHT);
+                    } else {
+                        tank->steps_to_escape[0] = (random_range(3, 6) << 4) | (MOVE_LEFT);
+                    }
                 }
-                if (((tank->steps_to_escape[i] & 0x0F) == MOVE_FRONT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
-                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向前移动\n", tank->name);
-                    tank->key_value_for_control.mask = 0;
-                    SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_W_ACTIVE);
-                    tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_FRONT);
-                    handle_key(tank, &(tank->key_value_for_control));
-                    goto iter_next_tank;
-                } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_RIGHT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
-                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向右移动(angle_deg:%f)\n", tank->name, tank->angle_deg);
-                    tank->key_value_for_control.mask = 0;
-                    SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_D_ACTIVE);
-                    tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_RIGHT);
-                    handle_key(tank, &(tank->key_value_for_control));
-                    goto iter_next_tank;
-                } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_LEFT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
-                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向左移动(angle_deg:%f)\n", tank->name, tank->angle_deg);
-                    tank->key_value_for_control.mask = 0;
-                    SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_A_ACTIVE);
-                    tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_LEFT);
-                    handle_key(tank, &(tank->key_value_for_control));
-                    goto iter_next_tank;
-                } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_BACK) && ((tank->steps_to_escape[i] >> 4) > 0)) {
-                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向后移动\n", tank->name);
-                    tank->key_value_for_control.mask = 0;
-                    SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_S_ACTIVE);
-                    tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_BACK);
-                    handle_key(tank, &(tank->key_value_for_control));
-                    goto iter_next_tank;
+            } else {
+                for (i=0; i<STEPS_TO_ESCAPE_NUM; i++) {
+                    if (tank->steps_to_escape[i] == 0) {
+                        continue;
+                    }
+                    if (((tank->steps_to_escape[i] & 0x0F) == MOVE_FRONT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
+                        tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向前移动\n", tank->name);
+                        tank->key_value_for_control.mask = 0;
+                        SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_W_ACTIVE);
+                        tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_FRONT);
+                        handle_key(tank, &(tank->key_value_for_control));
+                        goto iter_next_tank;
+                    } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_RIGHT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
+                        tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向右移动(angle_deg:%f)\n", tank->name, tank->angle_deg);
+                        tank->key_value_for_control.mask = 0;
+                        SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_D_ACTIVE);
+                        tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_RIGHT);
+                        handle_key(tank, &(tank->key_value_for_control));
+                        goto iter_next_tank;
+                    } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_LEFT) && ((tank->steps_to_escape[i] >> 4) > 0)) {
+                        tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向左移动(angle_deg:%f)\n", tank->name, tank->angle_deg);
+                        tank->key_value_for_control.mask = 0;
+                        SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_A_ACTIVE);
+                        tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_LEFT);
+                        handle_key(tank, &(tank->key_value_for_control));
+                        goto iter_next_tank;
+                    } else if (((tank->steps_to_escape[i] & 0x0F) == MOVE_BACK) && ((tank->steps_to_escape[i] >> 4) > 0)) {
+                        tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向后移动\n", tank->name);
+                        tank->key_value_for_control.mask = 0;
+                        SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_S_ACTIVE);
+                        tank->steps_to_escape[i] = (((tank->steps_to_escape[i] >> 4) - 1) << 4) | (MOVE_BACK);
+                        handle_key(tank, &(tank->key_value_for_control));
+                        goto iter_next_tank;
+                    }
                 }
+                for (i=0; i<STEPS_TO_ESCAPE_NUM; i++) {
+                    tank->steps_to_escape[i] = 0;
+                }
+                grid = get_grid_by_tank_position(&tank->position);
+                if (!is_two_grids_the_same(&tank->current_grid, &grid)) {
+                    tank->current_grid = grid;
+                    CLR_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY);
+                    tank->map_vis[tank->current_grid.y][tank->current_grid.x] += 1;
+                }
+                if (!TST_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY) && is_tank_near_grid_center(tank, &grid)) { // 这里near判断有点严格了（即如果坦克稍微走偏了就可能会被认为不靠近中心），不过也没关系
+                    /*每当到达一个新的网格中心位置处，就需要重新决策前进方向*/
+                    SET_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY);
+                    tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s重新选择方向(current_grid:(%d,%d))\n", tank->name, POS(tank->current_grid));
+                    reset_rotation_direction_for_tank(tank, 0);
+                }
+                tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向前移动(angle_deg:%f, pos:(%f,%f))\n", tank->name, tank->angle_deg, POS(tank->position));
+                tank->key_value_for_control.mask = 0;
+                SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_W_ACTIVE); // 默认向前移动
+                handle_key(tank, &(tank->key_value_for_control));
+                // if ((tk_shared_game_state.game_time % 20) == 0) {
+                //     create_shell_for_tank(tank);
+                // }
+    iter_next_tank:
+                continue;
             }
-            for (i=0; i<STEPS_TO_ESCAPE_NUM; i++) {
-                tank->steps_to_escape[i] = 0;
-            }
-            grid = get_grid_by_tank_position(&tank->position);
-            if (!is_two_grids_the_same(&tank->current_grid, &grid)) {
-                tank->current_grid = grid;
-                CLR_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY);
-                tank->map_vis[tank->current_grid.y][tank->current_grid.x] += 1;
-            }
-            if (!TST_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY) && is_tank_near_grid_center(tank, &grid)) { // 这里near判断有点严格了（即如果坦克稍微走偏了就可能会被认为不靠近中心），不过也没关系
-                /*每当到达一个新的网格中心位置处，就需要重新决策前进方向*/
-                SET_FLAG(tank, flags, TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY);
-                tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s重新选择方向(current_grid:(%d,%d))\n", tank->name, POS(tank->current_grid));
-                reset_rotation_direction_for_tank(tank, 0);
-            }
-            tk_debug_internal(DEBUG_ENEMY_MUGGLE_TANK, "%s向前移动(angle_deg:%f, pos:(%f,%f))\n", tank->name, tank->angle_deg, POS(tank->position));
-            tank->key_value_for_control.mask = 0;
-            SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_W_ACTIVE); // 默认向前移动
-            handle_key(tank, &(tank->key_value_for_control));
-            // if ((tk_shared_game_state.game_time % 20) == 0) {
-            //     create_shell_for_tank(tank);
-            // }
-iter_next_tank:
-            continue;
         }
     }
+}
+
+/**
+ * 检查两个矩形是否在x轴上的投影区间有重叠
+ */
+static bool is_x_projection_overlap(const Rectangle* r1, const Rectangle* r2) {
+    // 获取r1在x轴上的最小和最大值
+    tk_float32_t r1_min_x = r1->lefttop.x;
+    tk_float32_t r1_max_x = r1->lefttop.x;
+    r1_min_x = MIN(r1->righttop.x, r1_min_x);
+    r1_min_x = MIN(r1->rightbottom.x, r1_min_x);
+    r1_min_x = MIN(r1->leftbottom.x, r1_min_x);
+    r1_max_x = MAX(r1->righttop.x, r1_max_x);
+    r1_max_x = MAX(r1->rightbottom.x, r1_max_x);
+    r1_max_x = MAX(r1->leftbottom.x, r1_max_x);
+
+    // 获取r2在x轴上的最小和最大值
+    tk_float32_t r2_min_x = r2->lefttop.x;
+    tk_float32_t r2_max_x = r2->lefttop.x;
+    r2_min_x = MIN(r2->righttop.x, r2_min_x);
+    r2_min_x = MIN(r2->rightbottom.x, r2_min_x);
+    r2_min_x = MIN(r2->leftbottom.x, r2_min_x);
+    r2_max_x = MAX(r2->righttop.x, r2_max_x);
+    r2_max_x = MAX(r2->rightbottom.x, r2_max_x);
+    r2_max_x = MAX(r2->leftbottom.x, r2_max_x);
+
+    // 检查x轴投影是否重叠：r1在r2左侧或右侧时不重叠
+    return !((r1_max_x < r2_min_x) || (r2_max_x < r1_min_x));
+}
+
+/**
+ * 检查两个矩形是否在y轴上的投影区间有重叠
+ */
+static bool is_y_projection_overlap(const Rectangle* r1, const Rectangle* r2) {
+    // 获取r1在y轴上的最小和最大值
+    tk_float32_t r1_min_y = r1->lefttop.y;
+    tk_float32_t r1_max_y = r1->lefttop.y;
+    r1_min_y = MIN(r1->righttop.y, r1_min_y);
+    r1_min_y = MIN(r1->rightbottom.y, r1_min_y);
+    r1_min_y = MIN(r1->leftbottom.y, r1_min_y);
+    r1_max_y = MAX(r1->righttop.y, r1_max_y);
+    r1_max_y = MAX(r1->rightbottom.y, r1_max_y);
+    r1_max_y = MAX(r1->leftbottom.y, r1_max_y);
+
+    // 获取r2在y轴上的最小和最大值
+    tk_float32_t r2_min_y = r2->lefttop.y;
+    tk_float32_t r2_max_y = r2->lefttop.y;
+    r2_min_y = MIN(r2->righttop.y, r2_min_y);
+    r2_min_y = MIN(r2->rightbottom.y, r2_min_y);
+    r2_min_y = MIN(r2->leftbottom.y, r2_min_y);
+    r2_max_y = MAX(r2->righttop.y, r2_max_y);
+    r2_max_y = MAX(r2->rightbottom.y, r2_max_y);
+    r2_max_y = MAX(r2->leftbottom.y, r2_max_y);
+
+    // 检查y轴投影是否重叠：r1在r2上方或下方时不重叠
+    return !((r1_max_y < r2_min_y) || (r2_max_y < r1_min_y));
+}
+
+/**
+ * 使用投影法判断两个矩形是否相交
+ */
+bool is_rectangle_collision_projection(const Rectangle* r1, const Rectangle* r2) {
+    // 当且仅当x轴和y轴投影都重叠时，矩形相交
+    return is_x_projection_overlap(r1, r2) && is_y_projection_overlap(r1, r2);
+}
+
+/**
+ * 计算两点之间的向量
+ */
+Vector2 vector_from_points(const Point* a, const Point* b) {
+    Vector2 v = {b->x - a->x, b->y - a->y};
+    return v;
+}
+
+/**
+ * 计算向量的点积
+ */
+tk_float32_t dot_product(const Vector2* a, const Vector2* b) {
+    return a->x * b->x + a->y * b->y;
+}
+
+/**
+ * 计算向量的法线（垂直向量）
+ */
+Vector2 normal_vector(const Vector2* v) {
+    Vector2 n = {-v->y, v->x};
+    return n;
+}
+
+/**
+ * 归一化向量
+ */
+Vector2 normalize(const Vector2* v) {
+    tk_float32_t length = sqrtf(v->x * v->x + v->y * v->y);
+    if (length < 0.0001f) { // 避免除以零
+        return (Vector2){0, 0};
+    }
+    return (Vector2){v->x / length, v->y / length};
+}
+
+/**
+ * 将多边形投影到轴上，返回投影区间的最小值和最大值
+ */
+void project_polygon(const Vector2* axis, const Rectangle* rect, tk_float32_t* min, tk_float32_t* max) {
+    // 计算矩形四个顶点在轴上的投影
+    tk_float32_t p1 = dot_product(axis, &rect->lefttop);
+    tk_float32_t p2 = dot_product(axis, &rect->righttop);
+    tk_float32_t p3 = dot_product(axis, &rect->rightbottom);
+    tk_float32_t p4 = dot_product(axis, &rect->leftbottom);
+    
+    // 找出投影区间的最小值和最大值
+    *min = p1;
+    *max = p1;
+    if (p2 < *min) *min = p2;
+    if (p2 > *max) *max = p2;
+    if (p3 < *min) *min = p3;
+    if (p3 > *max) *max = p3;
+    if (p4 < *min) *min = p4;
+    if (p4 > *max) *max = p4;
+}
+
+/**
+ * 检查两个投影区间是否重叠
+ */
+bool overlap_projections(tk_float32_t min1, tk_float32_t max1, tk_float32_t min2, tk_float32_t max2) {
+    return !(max1 < min2 || max2 < min1);
+}
+
+/**
+ * 计算两个投影区间的重叠量
+ */
+tk_float32_t overlap_amount(tk_float32_t min1, tk_float32_t max1, tk_float32_t min2, tk_float32_t max2) {
+    if (!overlap_projections(min1, max1, min2, max2)) {
+        return 0;
+    }
+    return fminf(max1, max2) - fmaxf(min1, min2);
+}
+
+/**
+ * 使用分离轴定理检测两个矩形是否碰撞
+ */
+bool is_rectangle_collision(const Rectangle* r1, const Rectangle* r2) {
+    // 定义矩形的四条边向量（实际只需要两个不平行的边）
+    Vector2 edges[4];
+    
+    // r1的两条边
+    edges[0] = vector_from_points(&r1->lefttop, &r1->righttop);
+    edges[1] = vector_from_points(&r1->righttop, &r1->rightbottom);
+    
+    // r2的两条边
+    edges[2] = vector_from_points(&r2->lefttop, &r2->righttop);
+    edges[3] = vector_from_points(&r2->righttop, &r2->rightbottom);
+    
+    // 检查所有可能的分离轴（边的法线）
+    for (int i = 0; i < 4; i++) {
+        // 计算边的法线作为分离轴
+        Vector2 normal = normal_vector(&edges[i]);
+        Vector2 axis = normalize(&normal);
+        
+        // 将两个矩形投影到轴上
+        tk_float32_t min1, max1, min2, max2;
+        project_polygon(&axis, r1, &min1, &max1);
+        project_polygon(&axis, r2, &min2, &max2);
+        
+        // 如果投影区间不重叠，则矩形不相交
+        if (!overlap_projections(min1, max1, min2, max2)) {
+            return false;
+        }
+    }
+    
+    // 如果所有轴上的投影都重叠，则矩形相交
+    return true;
+}
+
+bool is_two_tanks_collision(Tank *my_tank, Rectangle *newest_outline, Tank *other_tank) {
+    Grid my_grid = get_grid_by_tank_position(&my_tank->position);
+    Grid other_grid = get_grid_by_tank_position(&other_tank->position);
+
+    if ((abs(my_grid.x - other_grid.x) >= 2) || (abs(my_grid.y - other_grid.y) >= 2)) {
+        return false;
+    }
+    if (!is_rectangle_collision_projection(newest_outline, &other_tank->practical_outline)) {
+        return false;
+    }
+    return is_rectangle_collision(newest_outline, &other_tank->practical_outline);
+}
+
+bool is_my_tank_collide_with_other_tanks(Tank *my_tank, Rectangle *newest_outline) {
+    Tank *other_tank= NULL;
+    TAILQ_FOREACH(other_tank, &tk_shared_game_state.tank_list, chain) {
+        if (other_tank == my_tank) {
+            continue;
+        }
+        if (!TST_FLAG(other_tank, flags, TANK_ALIVE)) {
+            continue;
+        }
+        if (is_two_tanks_collision(my_tank, newest_outline, other_tank)) {
+            tk_debug_internal(DEBUG_TANK_COLLISION, "坦克(%s)检测到与坦克(%s)发生了碰撞！\n", my_tank->name, other_tank->name);
+            return true;
+        }
+    }
+    return false;
 }
