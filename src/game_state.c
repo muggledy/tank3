@@ -995,7 +995,7 @@ void handle_key(Tank *tank, KeyValue *key_value) {
 
 Shell* create_shell_for_tank(Tank *tank) {
     if (!tank) return NULL;
-    if (!TST_FLAG(tank, flags, TANK_ALIVE)) return NULL;
+    if ((tank->health <= 0) || !TST_FLAG(tank, flags, TANK_ALIVE)) return NULL;
 
     Shell *shell = NULL;
     tk_uint8_t shell_num = 0;
@@ -1084,9 +1084,11 @@ double calculate_tan(double angle_degrees) {
     return 0;
 }*/
 
+extern Tank* is_my_shell_collide_with_other_tanks(Shell *shell);
+
 #define FINETUNE_SHELL_RADIUS_LENGTH (SHELL_RADIUS_LENGTH+0)
 
-void update_one_shell_movement_position(Shell *shell) {
+void update_one_shell_movement_position(Shell *shell, int need_to_detect_collision_with_tank) {
     Point new_pos;
     Grid current_grid;
     tk_float32_t wall_x = 0;
@@ -1096,6 +1098,7 @@ void update_one_shell_movement_position(Shell *shell) {
     tk_float32_t new_angle_deg = 0;
     tk_uint8_t collide_wall_x = 0; // 水平墙壁
     tk_uint8_t collide_wall_y = 0; // 垂直墙壁
+    Tank *tank = NULL;
 
     if (0 == shell->ttl) {
         return;
@@ -1509,6 +1512,21 @@ void update_one_shell_movement_position(Shell *shell) {
         shell->ttl -= 1;
     }
 out: // 没有发生碰撞反弹直接out
+    if (need_to_detect_collision_with_tank) {
+        tank = is_my_shell_collide_with_other_tanks(shell);
+        if (tank) {
+            shell->ttl = 0;
+            tank->health -= 50;
+            if (tank->health <= 0) {
+                tk_debug("坦克(%s)被%s的炮弹(ID:%u)击毁！\n", tank->name, ((Tank *)(shell->tank_owner))->name, shell->id);
+                // delete_tank(tank, 1); //此时还不能立即destroy/free被击毁的坦克，因为爆炸特效的绘制需要一些时间，因此
+                // 需要依赖定时器延迟删除坦克，当前是放在update_muggle_enemy_position()中去完成dead坦克的删除释放
+            } else {
+                tk_debug("%s的炮弹(ID:%u)击中了坦克%s(剩余血量%u)\n", ((Tank *)(shell->tank_owner))->name, shell->id, tank->name, tank->health);
+            }
+            return;
+        }
+    }
     shell->position = new_pos;
     shell->angle_deg = new_angle_deg;
 }
@@ -1539,14 +1557,14 @@ void update_all_shell_movement_position() {
     TAILQ_FOREACH_SAFE(tank, &tk_shared_game_state.tank_list, chain, tt) {
         TAILQ_FOREACH_SAFE(shell, &tank->shell_list, chain, ts) {
             old_pos = shell->position;
-            update_one_shell_movement_position(shell);
+            update_one_shell_movement_position(shell, 1);
             tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "shell %lu(tank %lu) move from (%f,%f) to (%f,%f)\n", 
                 shell->id, tank->id, POS(old_pos), POS(shell->position));
             /*如果上次移动位置即将触碰墙壁，本次前进则会检测到碰撞，因此本次前进的步伐非常之微小，可以认为前后都处于同一位置，
             简单来说，正常一个位置只有一帧画面的话，那现在就变成两帧都在同一位置，会使得玩家观察到碰撞反弹处炮弹迟滞一段时间的现象，
             对于这种情况，需要再次执行前进动作*/
             if (is_near(POS(old_pos), POS(shell->position))) {
-                update_one_shell_movement_position(shell);
+                update_one_shell_movement_position(shell, 0);
                 tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "本次移动距离太小，再次移动！(%f,%f)=>(%f,%f)\n", POS(old_pos), POS(shell->position));
             }
             if (0 == shell->ttl) { // shell is dead
@@ -1741,7 +1759,7 @@ void reset_rotation_direction_for_tank(Tank *tank, int index) {
 }
 
 // 傻瓜坦克随机自由移动并发射炮弹
-void update_muggledy_enemy_position() {
+void update_muggle_enemy_position() {
     Tank *tank = NULL, *tt = NULL;
     tk_float32_t new_angle_deg = 0;
     int i = 0;
@@ -1750,6 +1768,9 @@ void update_muggledy_enemy_position() {
 
     TAILQ_FOREACH_SAFE(tank, &tk_shared_game_state.tank_list, chain, tt) {
         if ((tank->health <= 0) || !TST_FLAG(tank, flags, TANK_ALIVE)) {
+            if (TST_FLAG(tank, flags, TANK_DEAD)) {
+                delete_tank(tank, 1);
+            }
             continue;
         }
         if (TANK_ROLE_ENEMY_MUGGLE == tank->role) {
@@ -2025,13 +2046,14 @@ bool is_two_tanks_collision(Tank *my_tank, Rectangle *newest_outline, Tank *othe
     return is_rectangle_collision(newest_outline, &other_tank->practical_outline);
 }
 
+/*坦克是否与其他坦克发生碰撞*/
 bool is_my_tank_collide_with_other_tanks(Tank *my_tank, Rectangle *newest_outline) {
     Tank *other_tank= NULL;
     TAILQ_FOREACH(other_tank, &tk_shared_game_state.tank_list, chain) {
         if (other_tank == my_tank) {
             continue;
         }
-        if (!TST_FLAG(other_tank, flags, TANK_ALIVE)) {
+        if ((other_tank->health <= 0) || !TST_FLAG(other_tank, flags, TANK_ALIVE)) {
             continue;
         }
         if (is_two_tanks_collision(my_tank, newest_outline, other_tank)) {
@@ -2040,4 +2062,49 @@ bool is_my_tank_collide_with_other_tanks(Tank *my_tank, Rectangle *newest_outlin
         }
     }
     return false;
+}
+
+void calculate_shell_outline(const Point *center, Rectangle *rect) {
+	Point *points = (Point *)rect;
+    // 四个顶点坐标
+    points[0] = (Point){center->x - (SHELL_RADIUS_LENGTH/2), center->y - (SHELL_RADIUS_LENGTH/2)};
+    points[1] = (Point){center->x + (SHELL_RADIUS_LENGTH/2), center->y - (SHELL_RADIUS_LENGTH/2)};
+    points[2] = (Point){center->x + (SHELL_RADIUS_LENGTH/2), center->y + (SHELL_RADIUS_LENGTH/2)};
+    points[3] = (Point){center->x - (SHELL_RADIUS_LENGTH/2), center->y + (SHELL_RADIUS_LENGTH/2)};
+}
+
+bool is_shell_and_tank_collision(Shell *shell, Rectangle *shell_outline, Tank *tank) {
+    Grid shell_grid = get_grid_by_tank_position(&shell->position);
+    Grid tank_grid = get_grid_by_tank_position(&tank->position);
+
+    if ((abs(shell_grid.x - tank_grid.x) >= 2) || (abs(shell_grid.y - tank_grid.y) >= 2)) {
+        return false;
+    }
+    if (!is_rectangle_collision_projection(shell_outline, &tank->practical_outline)) {
+        return false;
+    }
+    return is_rectangle_collision(shell_outline, &tank->practical_outline);
+}
+
+/*炮弹是否与其他坦克发生碰撞，函数返回发生碰撞的其他人坦克*/
+Tank* is_my_shell_collide_with_other_tanks(Shell *shell) {
+    Tank *other_tank= NULL;
+    Tank *my_tank = (Tank *)(shell->tank_owner);
+    Rectangle shell_outline;
+
+    calculate_shell_outline(&shell->position, &shell_outline);
+    TAILQ_FOREACH(other_tank, &tk_shared_game_state.tank_list, chain) {
+        if (other_tank == my_tank) { //如果自己的炮弹打到自己，不掉血，直接穿过？合理吗这样设定~
+            continue;
+        }
+        if ((other_tank->health <= 0) || !TST_FLAG(other_tank, flags, TANK_ALIVE)) {
+            continue;
+        }
+        if (is_shell_and_tank_collision(shell, &shell_outline, other_tank)) {
+            tk_debug_internal(DEBUG_SHELL_COLLISION, "炮弹(%s's %u shell)检测到与坦克(%s)在位置(%f,%f)发生了碰撞！\n", 
+                my_tank->name, shell->id, other_tank->name, POS(shell->position));
+            return other_tank;
+        }
+    }
+    return NULL;
 }

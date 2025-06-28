@@ -79,7 +79,7 @@ typedef struct _Tank {
     tk_float32_t angle_deg; // 朝向角度
     tk_float32_t speed; // 移动速度
 #define TANK_INIT_SPEED 4
-    tk_uint16_t health; // 生命值
+    tk_uint16_t health; // 生命值（要摧毁一辆坦克只需要将health减小到0）
     tk_uint16_t max_health;
     tk_uint16_t score;  // 分数
 #define TANK_ALIVE 0x00000001
@@ -197,7 +197,7 @@ extern Grid get_grid_by_tank_position(Point *pos);
 extern Shell* create_shell_for_tank(Tank *tank);
 extern void delete_shell(Shell *shell, int dereference);
 extern void update_all_shell_movement_position();
-extern void update_muggledy_enemy_position();
+extern void update_muggle_enemy_position();
 
 extern void lock(pthread_spinlock_t *spinlock);
 extern void unlock(pthread_spinlock_t *spinlock);

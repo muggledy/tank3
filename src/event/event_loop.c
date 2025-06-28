@@ -312,6 +312,6 @@ struct event* add_timer_event(int timeout_ms, void (*callback)(void*), void* arg
 
 void update_game_state_timer_handle() {
     tk_debug_internal(DEBUG_EVENT_LOOP, "update_game_state_timer_handle\n");
-    update_muggledy_enemy_position();
+    update_muggle_enemy_position();
     update_all_shell_movement_position();
 }

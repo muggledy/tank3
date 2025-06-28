@@ -689,6 +689,7 @@ void draw_solid_circle(SDL_Renderer* renderer, tk_float32_t x0, tk_float32_t y0,
 
 // 绘制炮弹
 void draw_shell(SDL_Renderer* renderer, Shell *shell) {
+    if (!shell->ttl) return;
     draw_solid_circle(renderer, POS(shell->position), SHELL_RADIUS_LENGTH, (SDL_Color*)(((Tank*)(shell->tank_owner))->basic_color));
 }
 
@@ -874,11 +875,11 @@ void gui_main_loop() {
                 goto out;
             } else if (e.type == SDL_KEYDOWN) { // 处理键盘事件
                 // printf(">>> key %d down\n", e.key.keysym.sym);
-                if (mytankptr && (mytankptr->health > 0)) {
-                    mytankptr->health--;
-                } else {
-                    break;
-                }
+                // if (mytankptr && (mytankptr->health > 0)) {
+                //     mytankptr->health--;
+                // } else {
+                //     break;
+                // }
                 switch (e.key.keysym.sym) {
                     case SDLK_ESCAPE:
                         quit = 1;
