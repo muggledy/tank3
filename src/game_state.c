@@ -6,7 +6,7 @@
 #include "tools.h"
 #include <stdbool.h>
 
-/*山与海辞别岁晚，石与月共祝春欢 —— 晓珍*/
+/*山与海辞别岁晚，石与月共祝春欢*/
 
 IDPool* tk_idpool = NULL;
 GameState tk_shared_game_state;
@@ -1517,10 +1517,11 @@ out: // 没有发生碰撞反弹直接out
         if (tank) {
             shell->ttl = 0;
             tank->health -= 50;
+            SET_FLAG(tank, flags, TANK_IS_HIT_BY_ENEMY);
             if (tank->health <= 0) {
                 tk_debug("坦克(%s)被%s的炮弹(ID:%u)击毁！\n", tank->name, ((Tank *)(shell->tank_owner))->name, shell->id);
                 // delete_tank(tank, 1); //此时还不能立即destroy/free被击毁的坦克，因为爆炸特效的绘制需要一些时间，因此
-                // 需要依赖定时器延迟删除坦克，当前是放在update_muggle_enemy_position()中去完成dead坦克的删除释放
+                // 需要依赖定时器延迟删除坦克，当前是放在update_muggle_enemy_position()中去完成deaded坦克的删除释放
             } else {
                 tk_debug("%s的炮弹(ID:%u)击中了坦克%s(剩余血量%u)\n", ((Tank *)(shell->tank_owner))->name, shell->id, tank->name, tank->health);
             }

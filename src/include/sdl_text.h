@@ -3,14 +3,21 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include "hashtbl.h"
+
+#define FONT_CACHE_BASED_ON_HASH // 若不定义该宏，则使用基于数组的缓存表，性能较差(体现倒也不明显)，建议使用哈希表实现缓存表
 
 // 文本缓存项结构
-typedef struct {
+typedef struct _TextCacheItem {
     char* text;
     SDL_Color color;
     int font_size;
     SDL_Texture* texture;
     unsigned int hits; // 缓存命中次数
+#ifdef FONT_CACHE_BASED_ON_HASH
+    tk_uint32_t hashkey;
+    hashtbl_link_t hashlink;
+#endif
 } TextCacheItem;
 
 // 字体缓存结构

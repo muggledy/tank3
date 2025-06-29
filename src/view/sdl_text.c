@@ -9,10 +9,14 @@
 #define SCREEN_HEIGHT 600
 
 // 文本缓存数组
+#ifdef FONT_CACHE_BASED_ON_HASH
+hashtbl_t *text_cache_hashtbl;
+#else
 #define MAX_CACHE_ITEMS 100
 TextCacheItem text_cache[MAX_CACHE_ITEMS];
 int cache_count = 0;
 unsigned int total_not_hit_text_cache_num = 0;
+#endif
 unsigned int total_not_hit_font_cache_num = 0;
 
 #define MAX_FONTS 5
@@ -59,9 +63,25 @@ int init_ttf() {
         return -1;
     }
     memset(font_cache, 0, sizeof(font_cache));
+#ifdef FONT_CACHE_BASED_ON_HASH
+    text_cache_hashtbl = hashtbl_init(12, offsetof(struct _TextCacheItem, hashlink), 0);
+#else
     memset(text_cache, 0, sizeof(text_cache));
+#endif
     return 0;
 }
+
+#ifdef FONT_CACHE_BASED_ON_HASH
+tk_uint32_t calc_text_hash_tag(char *text, int max_len) {
+    unsigned long hash = 5381;
+    int i = 0;
+    while (i < max_len && text[i] != '\0') {
+        hash = ((hash << 5) + hash) + text[i];
+        i++;
+    }
+    return (tk_uint32_t)(hash & 0x7FFFFFFF);
+}
+#endif
 
 void cleanup_ttf() {
     clear_cached_text();
@@ -78,8 +98,36 @@ TTF_Font* load_font(const char* font_path, int size) {
     return font;
 }
 
+#ifdef FONT_CACHE_BASED_ON_HASH
+int text_cache_item_hash_cmp(void *_item, void *_target_item) {
+    TextCacheItem *item = (TextCacheItem *)_item, *target_item = (TextCacheItem *)_target_item;
+    if ((strcmp(item->text, target_item->text) == 0) && (item->color.r == target_item->color.r) && 
+        (item->color.g == target_item->color.g) && (item->color.b == target_item->color.b) && 
+        (item->color.a == target_item->color.a) && (item->font_size == target_item->font_size)) {
+        return 1;
+    }
+    return 0;
+}
+#endif
+
 // 查找缓存的文本纹理
 static SDL_Texture* find_cached_texture(const char* text, SDL_Color color, int font_size) {
+#ifdef FONT_CACHE_BASED_ON_HASH
+    tk_uint32_t hashkey = 0;
+    TextCacheItem cmp_obj;
+    TextCacheItem *match_obj = NULL;
+
+    cmp_obj.text = (char*)text;
+    cmp_obj.color = color;
+    cmp_obj.font_size = font_size;
+    hashkey = calc_text_hash_tag((char*)text, 256);
+    match_obj = (TextCacheItem *)hashtbl_find(text_cache_hashtbl, &cmp_obj, hashkey, text_cache_item_hash_cmp);
+    if (match_obj) {
+        match_obj->hits++;
+        return match_obj->texture;
+    }
+    return NULL;
+#else
     for (int i = 0; i < cache_count; i++) {
         if (strcmp(text_cache[i].text, text) == 0 &&
             text_cache[i].color.r == color.r &&
@@ -93,10 +141,25 @@ static SDL_Texture* find_cached_texture(const char* text, SDL_Color color, int f
     }
     total_not_hit_text_cache_num++;
     return NULL;
+#endif
 }
 
 // 添加文本到缓存
 static void add_text_to_cache(const char* text, SDL_Color color, int font_size, SDL_Texture* texture) {
+#ifdef FONT_CACHE_BASED_ON_HASH
+    TextCacheItem *item = NULL;
+    item = malloc(sizeof(TextCacheItem));
+    if (!item) {
+        return;
+    }
+    memset(item, 0, sizeof(*item));
+    item->hashkey = calc_text_hash_tag((char*)text, 256);
+    item->text = strdup(text);
+    item->color = color;
+    item->font_size = font_size;
+    item->texture = texture;
+    hashtbl_insert(text_cache_hashtbl, item->hashkey, item);
+#else
     int i = 0;
     unsigned int min_hits = 0;
     int min_hits_index = 0;
@@ -126,22 +189,56 @@ set_cache:
         SDL_DestroyTexture(text_cache[i].texture);
         goto set_cache;
     }
+#endif
 }
 
+#ifdef FONT_CACHE_BASED_ON_HASH
+int textcache_hashtbl_item_count = 0;
+int print_text_cacha_hashtbl_item(void *_item, void *_args) {
+    TextCacheItem *item = (TextCacheItem *)_item;
+    printf("(%d) %s. hits:%u\n", textcache_hashtbl_item_count++, item->text, item->hits);
+    return 0;
+}
+#endif
+
 void print_text_cache() {
+#ifdef FONT_CACHE_BASED_ON_HASH
+    textcache_hashtbl_item_count = 0;
+    tk_debug("Cached Text Table(hashtbl):\n");
+    hashtbl_traverse_each(text_cache_hashtbl, print_text_cacha_hashtbl_item, NULL);
+#else
     int i = 0;
     tk_debug("Cached Text Table(count %d):\n", cache_count);
     for (i = 0; i < cache_count; i++) {
         printf("(%d) %s. hits:%u\n", i, text_cache[i].text, text_cache[i].hits);
     }
     printf("statistic: not hit text num: %u, not hit font num: %u\n", total_not_hit_text_cache_num, total_not_hit_font_cache_num);
+#endif
 }
 
+#ifdef FONT_CACHE_BASED_ON_HASH
+int del_text_cacha_hashtbl_item(void *_item, void *_args) {
+    TextCacheItem *item = (TextCacheItem *)_item;
+    // printf("free textcache item: %s\n", item->text);
+    free(item->text);
+    SDL_DestroyTexture(item->texture);
+    hashtbl_remove(text_cache_hashtbl, item->hashkey, (void *)item);
+    free(item);
+    return 0;
+}
+#endif
+
 void clear_text_cache() {
+#ifdef FONT_CACHE_BASED_ON_HASH
+    hashtbl_traverse_each_safe(text_cache_hashtbl, del_text_cacha_hashtbl_item, NULL);
+    hashtbl_destroy(text_cache_hashtbl);
+    text_cache_hashtbl = NULL;
+#else
     for (int i = 0; i < cache_count; i++) {
         free(text_cache[i].text);
         SDL_DestroyTexture(text_cache[i].texture);
     }
+#endif
 }
 
 // 渲染文本（带缓存加速）

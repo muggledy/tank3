@@ -87,6 +87,7 @@ typedef struct _Tank {
 #define TANK_DEAD  0x00000004
 #define TANK_FORBID_SHOOT 0x00000008
 #define TANK_HAS_DECIDE_NEW_DIR_FOR_MUGGLE_ENEMY 0x00000100
+#define TANK_IS_HIT_BY_ENEMY 0x00000200 // 如果坦克被击中则置上此标记用于播放坦克被击中的音效
     tk_uint32_t flags;
 #define COLLISION_FRONT 0x01
 #define COLLISION_BACK  0x02

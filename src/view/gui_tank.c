@@ -108,6 +108,9 @@ int init_music() { // call after init_gui()
     if (load_music(&(tk_music.shoot), DEFAULT_TANK_SHOOT_MUSIC_PATH) != 0) {
         return -1;
     }
+    if (load_music(&(tk_music.hit), DEFAULT_TANK_HIT_MUSIC_PATH) != 0) {
+        return -1;
+    }
 
     return 0;
 }
@@ -133,6 +136,7 @@ void cleanup_music() { // call before cleanup_gui()
     pause_and_free_music(&(tk_music.move));
     pause_and_free_music(&(tk_music.explode));
     pause_and_free_music(&(tk_music.shoot));
+    pause_and_free_music(&(tk_music.hit));
 
     // 关闭SDL_mixer
     Mix_CloseAudio();
@@ -713,9 +717,16 @@ void render_gui_scene() {
             POS_OFFSET(tk_shared_game_state.blocks[i].end, tk_maze_offset));
     }
 
-    // 渲染坦克
+    // 渲染坦克和炮弹
     lock(&tk_shared_game_state.spinlock);
     TAILQ_FOREACH(tank, &tk_shared_game_state.tank_list, chain) {
+        if (TST_FLAG(tank, flags, TANK_IS_HIT_BY_ENEMY)) {
+            CLR_FLAG(tank, flags, TANK_IS_HIT_BY_ENEMY);
+            if (is_music_playing(&(tk_music.hit))) {
+                pause_music(&(tk_music.hit));
+            }
+            play_music(&(tk_music.hit), 1); // 播放坦克被击中的音效
+        }
         draw_tank(tk_renderer, tank);
         draw_collision_warning(tk_renderer, tank);
         lock(&tank->spinlock); // 尽管GUI线程存在着两把锁的“请求和保持”问题，但控制线程没有该问题，因此无死锁

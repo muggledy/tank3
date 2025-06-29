@@ -22,6 +22,8 @@ typedef struct {
     MusicEntry explode;
 #define DEFAULT_TANK_SHOOT_MUSIC_PATH "./assets/tank_shoot.wav"
     MusicEntry shoot;
+#define DEFAULT_TANK_HIT_MUSIC_PATH "./assets/tank_hit.wav" // download from https://www.tukuppt.com/yinxiaomuban/tanke.html
+    MusicEntry hit;
 } TankMusic;
 
 extern KeyValue tk_key_value;
