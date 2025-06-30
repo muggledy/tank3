@@ -97,26 +97,6 @@ void *hashtbl_find(hashtbl_t *hashtbl, void *target_obj, int key, hashtbl_comp_f
 	return NULL;
 }
 
-void *hashtbl_find2(hashtbl_t *hashtbl, void *target_obj, int key, hashtbl_comp_func2 func, void *arg)
-{
-	int idx = key & ((1 << hashtbl->log_size) - 1);
-	hashtbl_link_t *head = hashtbl->tbl[idx];
-	hashtbl_link_t *iter;
-
-	for (iter = head; iter; iter = iter->next) {
-		if (iter->hash_value != key)
-			continue;
-		if ((func)(LINK2OBJ(hashtbl, iter), target_obj, arg) == 0)
-			return LINK2OBJ(hashtbl, iter);
-	}
-	return NULL;
-}
-
-int hashtbl_grow(hashtbl_t *tbl)
-{
-	return 0;
-}
-
 int hashtbl_free_all_objects(hashtbl_t *hashtbl, hashtbl_traverse_func func, void *args)
 {
 	if (NULL == hashtbl || (hashtbl->num_items == 0)) {

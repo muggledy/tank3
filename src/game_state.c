@@ -1084,6 +1084,37 @@ double calculate_tan(double angle_degrees) {
     return 0;
 }*/
 
+int is_equal_double(double a, double b, double epsilon) {
+    return fabs(a - b) < epsilon;
+}
+
+/*判断某位置是否在网格的边框线上，上下浮动范围_float，返回0表示不在边框上，返回1表示在上方边框线，2表示右，3表示下，4表示左*/
+#define POS_AT_LEFT_BORDER   0x01
+#define POS_AT_RIGHT_BORDER  0x02
+#define POS_AT_TOP_BORDER    0x04
+#define POS_AT_BOTTOM_BORDER 0x08
+tk_uint8_t is_pos_at_grid_border_line(Point *pos, Grid *grid, tk_uint8_t _float) {
+    int top_border = grid->y * GRID_SIZE + tk_maze_offset.y;
+    int right_border = (grid->x+1) * GRID_SIZE + tk_maze_offset.x;
+    int bottom_border = (grid->y+1) * GRID_SIZE + tk_maze_offset.y;
+    int left_border = (grid->x) * GRID_SIZE + tk_maze_offset.x;
+    tk_uint8_t flag = 0;
+
+    if ((left_border >= (pos->x-_float)) && (left_border <= (pos->x+_float))) {
+        SET_FLAG2(flag, POS_AT_LEFT_BORDER);
+    }
+    if ((right_border >= (pos->x-_float)) && (right_border <= (pos->x+_float))) {
+        SET_FLAG2(flag, POS_AT_RIGHT_BORDER);
+    }
+    if ((top_border >= (pos->y-_float)) && (top_border <= (pos->y+_float))) {
+        SET_FLAG2(flag, POS_AT_TOP_BORDER);
+    }
+    if ((bottom_border >= (pos->y-_float)) && (bottom_border <= (pos->y+_float))) {
+        SET_FLAG2(flag, POS_AT_BOTTOM_BORDER);
+    }
+    return flag;
+}
+
 extern Tank* is_my_shell_collide_with_other_tanks(Shell *shell);
 
 #define FINETUNE_SHELL_RADIUS_LENGTH (SHELL_RADIUS_LENGTH+0)
@@ -1099,6 +1130,12 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
     tk_uint8_t collide_wall_x = 0; // 水平墙壁
     tk_uint8_t collide_wall_y = 0; // 垂直墙壁
     Tank *tank = NULL;
+    tk_uint16_t blood_loss = 0;
+    double k = 0;
+    tk_float32_t x = 0, y = 0;
+    Grid t;
+    tk_uint8_t pos_flag = 0;
+    tk_uint8_t f0 = 0, f1 = 0;
 
     if (0 == shell->ttl) {
         return;
@@ -1117,7 +1154,26 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                 new_pos.y = wall_x + FINETUNE_SHELL_RADIUS_LENGTH;
                 new_angle_deg = 180; // 反弹方向
             } else {
-                goto out;
+                pos_flag = is_pos_at_grid_border_line(&shell->position, &current_grid, FINETUNE_SHELL_RADIUS_LENGTH);
+                if (TST_FLAG2(pos_flag, POS_AT_LEFT_BORDER)) {
+                    if (current_grid.x > 0) {
+                        t = (Grid){current_grid.x-1, next_grid.y};
+                        if (!is_two_grids_connected(&tk_shared_game_state.maze, &next_grid, &t)) {
+                            new_pos.y = wall_x + FINETUNE_SHELL_RADIUS_LENGTH;
+                            new_angle_deg = 180; // 反弹方向
+                        }
+                    }
+                } else if (TST_FLAG2(pos_flag, POS_AT_RIGHT_BORDER)) {
+                    if (current_grid.x < (HORIZON_GRID_NUMBER-1)) {
+                        t = (Grid){current_grid.x+1, next_grid.y};
+                        if (!is_two_grids_connected(&tk_shared_game_state.maze, &next_grid, &t)) {
+                            new_pos.y = wall_x + FINETUNE_SHELL_RADIUS_LENGTH;
+                            new_angle_deg = 180; // 反弹方向
+                        }
+                    }
+                } else {
+                    goto out;
+                }
             }
         } else {
             goto out;
@@ -1131,7 +1187,26 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                 new_pos.x = wall_y - FINETUNE_SHELL_RADIUS_LENGTH;
                 new_angle_deg = 270;
             } else {
-                goto out;
+                pos_flag = is_pos_at_grid_border_line(&shell->position, &current_grid, FINETUNE_SHELL_RADIUS_LENGTH);
+                if (TST_FLAG2(pos_flag, POS_AT_TOP_BORDER)) {
+                    if (current_grid.y > 0) {
+                        t = (Grid){next_grid.x, current_grid.y-1};
+                        if (!is_two_grids_connected(&tk_shared_game_state.maze, &next_grid, &t)) {
+                            new_pos.x = wall_y - FINETUNE_SHELL_RADIUS_LENGTH;
+                            new_angle_deg = 270;
+                        }
+                    }
+                } else if (TST_FLAG2(pos_flag, POS_AT_BOTTOM_BORDER)) {
+                    if (current_grid.y < (VERTICAL_GRID_NUMBER-1)) {
+                        t = (Grid){next_grid.x, current_grid.y+1};
+                        if (!is_two_grids_connected(&tk_shared_game_state.maze, &next_grid, &t)) {
+                            new_pos.x = wall_y - FINETUNE_SHELL_RADIUS_LENGTH;
+                            new_angle_deg = 270;
+                        }
+                    }
+                } else {
+                    goto out;
+                }
             }
         } else {
             goto out;
@@ -1145,7 +1220,26 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                 new_pos.y = wall_x - FINETUNE_SHELL_RADIUS_LENGTH;
                 new_angle_deg = 0;
             } else {
-                goto out;
+                pos_flag = is_pos_at_grid_border_line(&shell->position, &current_grid, FINETUNE_SHELL_RADIUS_LENGTH);
+                if (TST_FLAG2(pos_flag, POS_AT_LEFT_BORDER)) {
+                    if (current_grid.x > 0) {
+                        t = (Grid){current_grid.x-1, next_grid.y};
+                        if (!is_two_grids_connected(&tk_shared_game_state.maze, &next_grid, &t)) {
+                            new_pos.y = wall_x - FINETUNE_SHELL_RADIUS_LENGTH;
+                            new_angle_deg = 0;
+                        }
+                    }
+                } else if (TST_FLAG2(pos_flag, POS_AT_RIGHT_BORDER)) {
+                    if (current_grid.x < (HORIZON_GRID_NUMBER-1)) {
+                        t = (Grid){current_grid.x+1, next_grid.y};
+                        if (!is_two_grids_connected(&tk_shared_game_state.maze, &next_grid, &t)) {
+                            new_pos.y = wall_x - FINETUNE_SHELL_RADIUS_LENGTH;
+                            new_angle_deg = 0;
+                        }
+                    }
+                } else {
+                    goto out;
+                }
             }
         } else {
             goto out;
@@ -1159,7 +1253,26 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                 new_pos.x = wall_y + FINETUNE_SHELL_RADIUS_LENGTH;
                 new_angle_deg = 90;
             } else {
-                goto out;
+                pos_flag = is_pos_at_grid_border_line(&shell->position, &current_grid, FINETUNE_SHELL_RADIUS_LENGTH);
+                if (TST_FLAG2(pos_flag, POS_AT_TOP_BORDER)) {
+                    if (current_grid.y > 0) {
+                        t = (Grid){next_grid.x, current_grid.y-1};
+                        if (!is_two_grids_connected(&tk_shared_game_state.maze, &next_grid, &t)) {
+                            new_pos.x = wall_y + FINETUNE_SHELL_RADIUS_LENGTH;
+                            new_angle_deg = 90;
+                        }
+                    }
+                } else if (TST_FLAG2(pos_flag, POS_AT_BOTTOM_BORDER)) {
+                    if (current_grid.y < (VERTICAL_GRID_NUMBER-1)) {
+                        t = (Grid){next_grid.x, current_grid.y+1};
+                        if (!is_two_grids_connected(&tk_shared_game_state.maze, &next_grid, &t)) {
+                            new_pos.x = wall_y + FINETUNE_SHELL_RADIUS_LENGTH;
+                            new_angle_deg = 90;
+                        }
+                    }
+                } else {
+                    goto out;
+                }
             }
         } else {
             goto out;
@@ -1193,18 +1306,59 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                         &(Grid){current_grid.x, current_grid.y-1}, &(Grid){current_grid.x+1, current_grid.y-1});
                     if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
                         goto out;
-                    } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x\n");
-                        collide_wall_x = 1;
-                    } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_y\n");
-                        collide_wall_y = 1;
-                    } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x & opposite_wall_y\n");
-                        collide_wall_x = 1;
-                        collide_wall_y = 1;
-                    } else {
-                        goto out;
+                    }
+                    k = calculate_slope(shell->angle_deg); //k·x + y - (k·x0 + y0) = 0
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞检测1：k=%f(%u,%u), pos(%f,%f), wallxy(%f,%f)\n", 
+                        k, hit_opposite_wall_x, hit_opposite_wall_y, POS(shell->position), wall_x, wall_y);
+                    f0 = f1 = 0;
+                    if (hit_opposite_wall_x) {
+                        x = ((shell->position.y + k*shell->position.x) - wall_x) / k;
+                        if (is_equal_double(x, wall_y, 1e-9)) {
+                            f0 = 1;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞1：x=%f\n", x);
+                            collide_wall_y = 1;
+                        } else if ((x > wall_y) && (x < (wall_y+GRID_SIZE))) {
+                            f0 = 2;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞2：x=%f\n", x);
+                            collide_wall_x = 1;
+                        } else if ((x+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_y) {
+                            if ((shell->position.x+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_y) {
+                                f0 = 4;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：x=%f\n", x);
+                                collide_wall_x = 1;
+                            } else {
+                                f0 = 3;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞3：x=%f\n", x);
+                                collide_wall_y = 1;
+                            }
+                        }
+                    }
+                    if (hit_opposite_wall_y) {
+                        y = (shell->position.y + k*shell->position.x) - k*wall_y;
+                        if (is_equal_double(y, wall_x, 1e-9)) {
+                            f1 = 1;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞1：y=%f\n", y);
+                            collide_wall_x = 1;
+                        } else if ((y < wall_x) && (y > (wall_x-GRID_SIZE))) {
+                            f1 = 2;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞2：y=%f\n", y);
+                            collide_wall_y = 1;
+                        } else if ((y-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_x) {
+                            if ((shell->position.y-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_x) {
+                                f1 = 4;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：y=%f\n", y);
+                                collide_wall_y = 1;
+                            } else {
+                                f1 = 3;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞3：y=%f\n", y);
+                                collide_wall_x = 1;
+                            }
+                        }
+                    }
+                    if ((f0 == 4) && (f1 == 2)) {
+                        collide_wall_x = 0;
+                    } else if ((f0 == 2) && (f1 == 4)) {
+                        collide_wall_y = 0;
                     }
                 }
             }
@@ -1278,18 +1432,59 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                         &(Grid){current_grid.x, current_grid.y+1}, &(Grid){current_grid.x+1, current_grid.y+1});
                     if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
                         goto out;
-                    } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x\n");
-                        collide_wall_x = 1;
-                    } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_y\n");
-                        collide_wall_y = 1;
-                    } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x & opposite_wall_y\n");
-                        collide_wall_x = 1;
-                        collide_wall_y = 1;
-                    } else {
-                        goto out;
+                    }
+                    k = calculate_slope(shell->angle_deg); //k·x + y - (k·x0 + y0) = 0
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞检测2：k=%f(%u,%u), pos(%f,%f), wallxy(%f,%f)\n", 
+                        k, hit_opposite_wall_x, hit_opposite_wall_y, POS(shell->position), wall_x, wall_y);
+                    f0 = f1 = 0;
+                    if (hit_opposite_wall_x) {
+                        x = ((shell->position.y + k*shell->position.x) - wall_x) / k;
+                        if (is_equal_double(x, wall_y, 1e-9)) {
+                            f0 = 1;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞1：x=%f\n", x);
+                            collide_wall_y = 1;
+                        } else if ((x > wall_y) && (x < (wall_y+GRID_SIZE))) {
+                            f0 = 2;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞2：x=%f\n", x);
+                            collide_wall_x = 1;
+                        } else if ((x+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_y) {
+                            if ((shell->position.x+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_y) {
+                                f0 = 4;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：x=%f\n", x);
+                                collide_wall_x = 1;
+                            } else {
+                                f0 = 3;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞3：x=%f\n", x);
+                                collide_wall_y = 1;
+                            }
+                        }
+                    }
+                    if (hit_opposite_wall_y) {
+                        y = (shell->position.y + k*shell->position.x) - k*wall_y;
+                        if (is_equal_double(y, wall_x, 1e-9)) {
+                            f1 = 1;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞1：y=%f\n", y);
+                            collide_wall_x = 1;
+                        } else if ((y > wall_x) && (y < (wall_x+GRID_SIZE))) {
+                            f1 = 2;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞2：y=%f\n", y);
+                            collide_wall_y = 1;
+                        } else if ((y+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_x) {
+                            if ((shell->position.y+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_x) {
+                                f1 = 4;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：y=%f\n", y);
+                                collide_wall_y = 1;
+                            } else {
+                                f1 = 3;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞3：y=%f\n", y);
+                                collide_wall_x = 1;
+                            }
+                        }
+                    }
+                    if ((f0 == 4) && (f1 == 2)) {
+                        collide_wall_x = 0;
+                    } else if ((f0 == 2) && (f1 == 4)) {
+                        collide_wall_y = 0;
                     }
                 }
             }
@@ -1363,18 +1558,59 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                         &(Grid){current_grid.x, current_grid.y+1}, &(Grid){current_grid.x-1, current_grid.y+1});
                     if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
                         goto out;
-                    } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x\n");
-                        collide_wall_x = 1;
-                    } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_y\n");
-                        collide_wall_y = 1;
-                    } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x & opposite_wall_y\n");
-                        collide_wall_x = 1;
-                        collide_wall_y = 1;
-                    } else {
-                        goto out;
+                    }
+                    k = calculate_slope(shell->angle_deg); //k·x + y - (k·x0 + y0) = 0
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞检测3：k=%f(%u,%u), pos(%f,%f), wallxy(%f,%f)\n", 
+                        k, hit_opposite_wall_x, hit_opposite_wall_y, POS(shell->position), wall_x, wall_y);
+                    f0 = f1 = 0;
+                    if (hit_opposite_wall_x) {
+                        x = ((shell->position.y + k*shell->position.x) - wall_x) / k;
+                        if (is_equal_double(x, wall_y, 1e-9)) {
+                            f0 = 1;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞1：x=%f\n", x);
+                            collide_wall_y = 1;
+                        } else if ((x < wall_y) && (x > (wall_y-GRID_SIZE))) {
+                            f0 = 2;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞2：x=%f\n", x);
+                            collide_wall_x = 1;
+                        } else if ((x-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_y) {
+                            if ((shell->position.x-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_y) {
+                                f0 = 4;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：x=%f\n", x);
+                                collide_wall_x = 1;
+                            } else {
+                                f0 = 3;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞3：x=%f\n", x);
+                                collide_wall_y = 1;
+                            }
+                        }
+                    }
+                    if (hit_opposite_wall_y) {
+                        y = (shell->position.y + k*shell->position.x) - k*wall_y;
+                        if (is_equal_double(y, wall_x, 1e-9)) {
+                            f1 = 1;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞1：y=%f\n", y);
+                            collide_wall_x = 1;
+                        } else if ((y > wall_x) && (y < (wall_x+GRID_SIZE))) {
+                            f1 = 2;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞2：y=%f\n", y);
+                            collide_wall_y = 1;
+                        } else if ((y+(FINETUNE_SHELL_RADIUS_LENGTH+1) >= wall_x)) {
+                            if ((shell->position.y+(FINETUNE_SHELL_RADIUS_LENGTH+1) >= wall_x)) {
+                                f1 = 4;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：y=%f\n", y);
+                                collide_wall_y = 1;
+                            } else {
+                                f1 = 3;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞3：y=%f\n", y);
+                                collide_wall_x = 1;
+                            }
+                        }
+                    }
+                    if ((f0 == 4) && (f1 == 2)) {
+                        collide_wall_x = 0;
+                    } else if ((f0 == 2) && (f1 == 4)) {
+                        collide_wall_y = 0;
                     }
                 }
             }
@@ -1448,18 +1684,59 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                         &(Grid){current_grid.x, current_grid.y-1}, &(Grid){current_grid.x-1, current_grid.y-1});
                     if (!hit_opposite_wall_x && !hit_opposite_wall_y) {
                         goto out;
-                    } else if (hit_opposite_wall_x && (((new_pos.y+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_x) && ((new_pos.y-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_x))) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x\n");
-                        collide_wall_x = 1;
-                    } else if (hit_opposite_wall_y && (((new_pos.x+FINETUNE_SHELL_RADIUS_LENGTH) >= wall_y) && ((new_pos.x-FINETUNE_SHELL_RADIUS_LENGTH) <= wall_y))) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_y\n");
-                        collide_wall_y = 1;
-                    } else if (hit_opposite_wall_x && hit_opposite_wall_y) {
-                        tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊：碰撞opposite_wall_x & opposite_wall_y\n");
-                        collide_wall_x = 1;
-                        collide_wall_y = 1;
-                    } else {
-                        goto out;
+                    }
+                    k = calculate_slope(shell->angle_deg); //k·x + y - (k·x0 + y0) = 0
+                    tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞检测4：k=%f(%u,%u), pos(%f,%f), wallxy(%f,%f)\n", 
+                        k, hit_opposite_wall_x, hit_opposite_wall_y, POS(shell->position), wall_x, wall_y);
+                    f0 = f1 = 0;
+                    if (hit_opposite_wall_x) {
+                        x = ((shell->position.y + k*shell->position.x) - wall_x) / k;
+                        if (is_equal_double(x, wall_y, 1e-9)) {
+                            f0 = 1;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞1：x=%f\n", x);
+                            collide_wall_y = 1;
+                        } else if ((x < wall_y) && (x > (wall_y-GRID_SIZE))) {
+                            f0 = 2;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞2：x=%f\n", x);
+                            collide_wall_x = 1;
+                        } else if ((x-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_y) {
+                            if ((shell->position.x-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_y) {
+                                f0 = 4;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：x=%f\n", x);
+                                collide_wall_x = 1;
+                            } else {
+                                f0 = 3;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞3：x=%f\n", x);
+                                collide_wall_y = 1;
+                            }
+                        }
+                    }
+                    if (hit_opposite_wall_y) {
+                        y = (shell->position.y + k*shell->position.x) - k*wall_y;
+                        if (is_equal_double(y, wall_x, 1e-9)) {
+                            f1 = 1;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞1：y=%f\n", y);
+                            collide_wall_x = 1;
+                        } else if ((y < wall_x) && (y > (wall_x-GRID_SIZE))) {
+                            f1 = 2;
+                            tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞2：y=%f\n", y);
+                            collide_wall_y = 1;
+                        } else if ((y-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_x) {
+                            if ((shell->position.y-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_x) {
+                                f1 = 4;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：y=%f\n", y);
+                                collide_wall_y = 1;
+                            } else {
+                                f1 = 3;
+                                tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞3：y=%f\n", y);
+                                collide_wall_x = 1;
+                            }
+                        }
+                    }
+                    if ((f0 == 4) && (f1 == 2)) {
+                        collide_wall_x = 0;
+                    } else if ((f0 == 2) && (f1 == 4)) {
+                        collide_wall_y = 0;
                     }
                 }
             }
@@ -1509,21 +1786,28 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
     }
 
     if (new_angle_deg != shell->angle_deg) { // 发生碰撞
-        shell->ttl -= 1;
+        if (shell->ttl >= 1) {
+            shell->ttl -= 1;
+        }
     }
 out: // 没有发生碰撞反弹直接out
     if (need_to_detect_collision_with_tank) {
         tank = is_my_shell_collide_with_other_tanks(shell);
         if (tank) {
+            blood_loss = ((tk_float32_t)(shell->ttl <= 1 ? 1 : shell->ttl) / SHELL_COLLISION_MAX_NUM)*(50);
+            if (tank->health >= blood_loss) {
+                tank->health -= blood_loss; // 炮弹的威力随着反弹数量增加而减小，炮弹击中敌人最多消耗其50滴血
+            } else {
+                tank->health = 0;
+            }
             shell->ttl = 0;
-            tank->health -= 50;
             SET_FLAG(tank, flags, TANK_IS_HIT_BY_ENEMY);
             if (tank->health <= 0) {
                 tk_debug("坦克(%s)被%s的炮弹(ID:%u)击毁！\n", tank->name, ((Tank *)(shell->tank_owner))->name, shell->id);
                 // delete_tank(tank, 1); //此时还不能立即destroy/free被击毁的坦克，因为爆炸特效的绘制需要一些时间，因此
                 // 需要依赖定时器延迟删除坦克，当前是放在update_muggle_enemy_position()中去完成deaded坦克的删除释放
             } else {
-                tk_debug("%s的炮弹(ID:%u)击中了坦克%s(剩余血量%u)\n", ((Tank *)(shell->tank_owner))->name, shell->id, tank->name, tank->health);
+                tk_debug("%s的炮弹(ID:%u)击中了坦克%s(掉血%u,剩余血量%u)\n", ((Tank *)(shell->tank_owner))->name, shell->id, tank->name, blood_loss, tank->health);
             }
             return;
         }
@@ -1568,7 +1852,7 @@ void update_all_shell_movement_position() {
                 update_one_shell_movement_position(shell, 0);
                 tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "本次移动距离太小，再次移动！(%f,%f)=>(%f,%f)\n", POS(old_pos), POS(shell->position));
             }
-            if (0 == shell->ttl) { // shell is dead
+            if (shell->ttl <= 0) { // shell is dead
                 lock(&tank->spinlock);
                 TAILQ_REMOVE(&tank->shell_list, shell, chain);
                 unlock(&tank->spinlock);

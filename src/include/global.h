@@ -8,6 +8,10 @@
 #define CLR_FLAG(obj, field, flag) (obj)->field &= (~(flag))
 #define TST_FLAG(obj, field, flag) ((obj)->field & (flag))
 
+#define SET_FLAG2(field, flag) (field) |= (flag)
+#define CLR_FLAG2(field, flag) (field) &= (~(flag))
+#define TST_FLAG2(field, flag) ((field) & (flag))
+
 #define MAX(a, b) ((a) >= (b) ? (a) : (b))
 #define MIN(a, b) ((a) <= (b) ? (a) : (b))
 

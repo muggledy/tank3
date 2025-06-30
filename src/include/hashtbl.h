@@ -29,8 +29,6 @@ extern hashtbl_t* hashtbl_init(int log_size, int obj_offset, int auto_grow);
 extern int hashtbl_insert(hashtbl_t *tbl, int key, void *obj);
 extern int hashtbl_remove(hashtbl_t *tbl, int key, void *obj);
 extern void *hashtbl_find(hashtbl_t *hashtbl, void *target_obj, int key, hashtbl_comp_func func);
-extern void *hashtbl_find2(hashtbl_t *hashtbl, void *target_obj, int key, hashtbl_comp_func2 func, void* arg);
-extern int hashtbl_grow(hashtbl_t *tbl);
 extern int hashtbl_destroy(hashtbl_t *tbl);
 extern int hashtbl_reset(hashtbl_t *tbl);
 extern int hashtbl_traverse_each(hashtbl_t *hashtbl, hashtbl_traverse_func func, void *arg);
