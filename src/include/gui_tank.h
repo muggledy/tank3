@@ -9,6 +9,7 @@
 #include <time.h>    // 提供 time() 等声明
 #include <unistd.h>  // 提供 getpid() 等声明
 #include "sdl_text.h"
+#include "sdl_button.h"
 
 typedef struct {
     Mix_Chunk* sound;
@@ -28,8 +29,6 @@ typedef struct {
 
 extern KeyValue tk_key_value;
 extern TankMusic tk_music;
-
-#define DEFAULT_FONT_PATH "./assets/Microsoft_JhengHei.ttf"
 
 // 颜色定义
 // 定义颜色枚举
@@ -97,5 +96,7 @@ extern void gui_init_all_tank();
 extern void notify_control_thread_exit();
 // extern void send_key_to_control_thread(int key_type, int key_value);
 extern void gui_main_loop();
+
+extern void stop_game_button_click_callback(void* button, void* data);
 
 #endif

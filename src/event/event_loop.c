@@ -221,8 +221,23 @@ void handle_event(Event* event) {
         return;
     }
     switch (event->type) {
+    case EVENT_GAME_STOP:
+    {
+        tk_debug("暂停游戏\n");
+        tk_shared_game_state.stop_game = 1;
+    }
+    break;
+    case EVENT_GAME_START:
+    {
+        tk_debug("继续游戏\n");
+        tk_shared_game_state.stop_game = 0;
+    }
+    break;
     case EVENT_KEY_PRESS:
     {
+        if (tk_shared_game_state.stop_game) {
+            break;
+        }
         tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "recv key %d down\n", event->data.key);
         switch (event->data.key) {
             case KEY_W:
@@ -249,6 +264,9 @@ void handle_event(Event* event) {
     break;
     case EVENT_KEY_RELEASE:
     {
+        if (tk_shared_game_state.stop_game) {
+            break;
+        }
         tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "recv key %d up\n", event->data.key);
         switch (event->data.key) {
             case KEY_W:
@@ -311,7 +329,8 @@ struct event* add_timer_event(int timeout_ms, void (*callback)(void*), void* arg
 }
 
 void update_game_state_timer_handle() {
-    tk_debug_internal(DEBUG_EVENT_LOOP, "update_game_state_timer_handle\n");
+    if (tk_shared_game_state.stop_game) return;
+    tk_debug_internal(DEBUG_EVENT_LOOP, "update_game_state_timer_handle(%u)\n", tk_shared_game_state.game_time);
     update_muggle_enemy_position();
     update_all_shell_movement_position();
 }

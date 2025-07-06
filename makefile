@@ -30,18 +30,21 @@ LDFLAGS = -lm -lbsd -pthread # 添加链接数学库等选项
 ifeq ($(SANITIZE), 1)
     CFLAGS += -fsanitize=address
     LDFLAGS += -fsanitize=address
-    $(info AddressSanitizer(asan) Enabled!)
+    $(info AddressSanitizer(ASan) Enabled!)
 else
-    $(info AddressSanitizer(asan) Disabled)
+    $(info AddressSanitizer(ASan) Disabled)
 endif
 
 # 默认目标
 all: $(target)
 
 $(target): $(project_build_o)
+	@echo "正在链接 $(target)..."
 	gcc $^ \
 	$(SDL_FLAGS) \
-	-o $@ $(LDFLAGS)
+	-o $@ $(LDFLAGS) \
+	&& echo "成功: $(target) 已生成" \
+		|| (echo "失败: 无法生成 $(target)" && false)
 
 $(project_path)/%.o:$(project_path)/%.c
 	gcc -c $< -o $@ $(CFLAGS)

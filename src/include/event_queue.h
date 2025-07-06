@@ -9,7 +9,9 @@
 typedef enum {
     EVENT_KEY_PRESS,   //key down
     EVENT_KEY_RELEASE, //key up
-    EVENT_QUIT
+    EVENT_QUIT,
+    EVENT_GAME_STOP, // 游戏暂停（控制线程停止碰撞检测等逻辑处理）
+    EVENT_GAME_START // 游戏开始
 } EventType;
 
 // 按键码枚举

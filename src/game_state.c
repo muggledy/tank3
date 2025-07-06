@@ -918,6 +918,7 @@ void handle_key(Tank *tank, KeyValue *key_value) {
     tk_float32_t new_angle_deg = tank->angle_deg;
 
     // print_key_value(key_value);
+    tk_debug_internal(DEBUG_CONTROL_THREAD_DETAIL, "handle_key: %s's keyvalue is %u\n", tank->name, key_value->mask);
     if (TST_FLAG(key_value, mask, TK_KEY_W_ACTIVE)) {
         new_position = move_point(tank->position, tank->angle_deg, tank->speed);
     }
@@ -993,6 +994,13 @@ void handle_key(Tank *tank, KeyValue *key_value) {
     tank->outline = outline; // 将可能发生了碰撞的最新轮廓绘制出来用于debug
 }
 
+tk_uint8_t get_max_shell_collision_num(Tank *tank) {
+    if (TANK_ROLE_SELF == tank->role) {
+        return MY_SHELL_COLLISION_MAX_NUM;
+    }
+    return DEFAULT_TANK_SHELL_COLLISION_MAX_NUM;
+}
+
 Shell* create_shell_for_tank(Tank *tank) {
     if (!tank) return NULL;
     if ((tank->health <= 0) || !TST_FLAG(tank, flags, TANK_ALIVE)) return NULL;
@@ -1024,7 +1032,7 @@ Shell* create_shell_for_tank(Tank *tank) {
     shell->angle_deg = tank->angle_deg;
     shell->speed = SHELL_INIT_SPEED;
     shell->tank_owner = (void*)tank;
-    shell->ttl = SHELL_COLLISION_MAX_NUM;
+    shell->ttl = get_max_shell_collision_num(tank);
     lock(&tank->spinlock);
     TAILQ_INSERT_HEAD(&tank->shell_list, shell, chain);
     unlock(&tank->spinlock);
@@ -1128,8 +1136,8 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
     Point p;
     Grid next_grid;
     tk_float32_t new_angle_deg = 0;
-    tk_uint8_t collide_wall_x = 0; // 水平墙壁
-    tk_uint8_t collide_wall_y = 0; // 垂直墙壁
+    tk_uint8_t collide_wall_x = 0; // 是否与水平墙壁发生碰撞
+    tk_uint8_t collide_wall_y = 0; // 是否与垂直墙壁发生碰撞
     Tank *tank = NULL;
     tk_uint16_t blood_loss = 0;
     double k = 0;
@@ -1329,7 +1337,7 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                                 collide_wall_x = 1; //与wall_x水平墙壁发生碰撞
                             }
                         } else if ((x+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_y) {
-                            if ((shell->position.x+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_y) {
+                            if ((shell->position.x+(FINETUNE_SHELL_RADIUS_LENGTH/*+1*/)) >= wall_y) {
                                 f0 = 4;
                                 tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：x=%f\n", x);
                                 collide_wall_x = 1;
@@ -1357,7 +1365,7 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                                 collide_wall_y = 1;
                             }
                         } else if ((y-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_x) {
-                            if ((shell->position.y-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_x) {
+                            if ((shell->position.y-(FINETUNE_SHELL_RADIUS_LENGTH/*+1*/)) <= wall_x) {
                                 f1 = 4;
                                 tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：y=%f\n", y);
                                 collide_wall_y = 1;
@@ -1467,7 +1475,7 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                                 collide_wall_x = 1;
                             }
                         } else if ((x+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_y) {
-                            if ((shell->position.x+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_y) {
+                            if ((shell->position.x+(FINETUNE_SHELL_RADIUS_LENGTH/*+1*/)) >= wall_y) {
                                 f0 = 4;
                                 tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：x=%f\n", x);
                                 collide_wall_x = 1;
@@ -1495,7 +1503,7 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                                 collide_wall_y = 1;
                             }
                         } else if ((y+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_x) {
-                            if ((shell->position.y+(FINETUNE_SHELL_RADIUS_LENGTH+1)) >= wall_x) {
+                            if ((shell->position.y+(FINETUNE_SHELL_RADIUS_LENGTH/*+1*/)) >= wall_x) {
                                 f1 = 4;
                                 tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：y=%f\n", y);
                                 collide_wall_y = 1;
@@ -1605,7 +1613,7 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                                 collide_wall_x = 1;
                             }
                         } else if ((x-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_y) {
-                            if ((shell->position.x-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_y) {
+                            if ((shell->position.x-(FINETUNE_SHELL_RADIUS_LENGTH/*+1*/)) <= wall_y) {
                                 f0 = 4;
                                 tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：x=%f\n", x);
                                 collide_wall_x = 1;
@@ -1633,7 +1641,7 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                                 collide_wall_y = 1;
                             }
                         } else if ((y+(FINETUNE_SHELL_RADIUS_LENGTH+1) >= wall_x)) {
-                            if ((shell->position.y+(FINETUNE_SHELL_RADIUS_LENGTH+1) >= wall_x)) {
+                            if ((shell->position.y+(FINETUNE_SHELL_RADIUS_LENGTH/*+1*/) >= wall_x)) {
                                 f1 = 4;
                                 tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：y=%f\n", y);
                                 collide_wall_y = 1;
@@ -1743,7 +1751,7 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                                 collide_wall_x = 1;
                             }
                         } else if ((x-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_y) {
-                            if ((shell->position.x-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_y) {
+                            if ((shell->position.x-(FINETUNE_SHELL_RADIUS_LENGTH/*+1*/)) <= wall_y) {
                                 f0 = 4;
                                 tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：x=%f\n", x);
                                 collide_wall_x = 1;
@@ -1771,7 +1779,7 @@ void update_one_shell_movement_position(Shell *shell, int need_to_detect_collisi
                                 collide_wall_y = 1;
                             }
                         } else if ((y-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_x) {
-                            if ((shell->position.y-(FINETUNE_SHELL_RADIUS_LENGTH+1)) <= wall_x) {
+                            if ((shell->position.y-(FINETUNE_SHELL_RADIUS_LENGTH/*+1*/)) <= wall_x) {
                                 f1 = 4;
                                 tk_debug_internal(DEBUG_SHELL_COLLISION, "特殊碰撞4：y=%f\n", y);
                                 collide_wall_y = 1;
@@ -1843,7 +1851,7 @@ out: // 没有发生碰撞反弹直接out
     if (need_to_detect_collision_with_tank) {
         tank = is_my_shell_collide_with_other_tanks(shell);
         if (tank) {
-            blood_loss = ((tk_float32_t)(shell->ttl <= 1 ? 1 : shell->ttl) / SHELL_COLLISION_MAX_NUM)*(50);
+            blood_loss = ((tk_float32_t)(shell->ttl <= 1 ? 1 : shell->ttl) / get_max_shell_collision_num((Tank*)(shell->tank_owner)))*(50);
             if (tank->health >= blood_loss) {
                 tank->health -= blood_loss; // 炮弹的威力随着反弹数量增加而减小，炮弹击中敌人最多消耗其50滴血
             } else {
@@ -2185,9 +2193,9 @@ void update_muggle_enemy_position() {
                 tank->key_value_for_control.mask = 0;
                 SET_FLAG(&(tank->key_value_for_control), mask, TK_KEY_W_ACTIVE); // 默认向前移动
                 handle_key(tank, &(tank->key_value_for_control));
-                // if ((tk_shared_game_state.game_time % 20) == 0) {
-                //     create_shell_for_tank(tank);
-                // }
+                if ((tk_shared_game_state.game_time % 20) == 0) { // 定期发射炮弹
+                    create_shell_for_tank(tank);
+                }
     iter_next_tank:
                 continue;
             }

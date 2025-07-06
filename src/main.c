@@ -56,12 +56,15 @@ void* gui_thread(void* arg) {
         goto out;
     }
     gui_init_all_tank();
+    create_button(tk_maze_offset.x+GRID_SIZE*HORIZON_GRID_NUMBER+10, tk_maze_offset.y, 50, 30, 8, 2, 
+        "暂停", stop_game_button_click_callback, NULL);
     // 主循环
     gui_main_loop();
     // ret = 0;
     print_text_cache();
 
 out:
+    cleanup_all_buttons();
     cleanup_game_state();
     cleanup_idpool();
     cleanup_ttf();

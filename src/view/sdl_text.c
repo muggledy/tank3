@@ -294,6 +294,7 @@ void get_text_size(TTF_Font* font, const char* text, int* width, int* height) {
 
 // 渲染文本到屏幕
 void draw_text(SDL_Renderer* renderer, SDL_Texture* texture, int x, int y) {
+    if (!renderer || !texture) return;
     SDL_Rect dest_rect;
     SDL_QueryTexture(texture, NULL, NULL, &dest_rect.w, &dest_rect.h);
     dest_rect.x = x;

@@ -64,7 +64,8 @@ typedef struct _Shell {
     tk_float32_t speed;     // 移动速度
 #define SHELL_INIT_SPEED 9  // <=10
     tk_uint8_t ttl; // 碰撞墙壁的次数，达到阈值(SHELL_COLLISION_MAX_NUM)则湮灭
-#define SHELL_COLLISION_MAX_NUM 6 // TTL
+#define MY_SHELL_COLLISION_MAX_NUM 6 // TTL
+#define DEFAULT_TANK_SHELL_COLLISION_MAX_NUM 3
     TAILQ_ENTRY(_Shell) chain;
 } Shell;
 
@@ -106,7 +107,7 @@ typedef struct _Tank {
     Rectangle practical_outline; // 实际的轮廓边界，未发生碰撞的轮廓
     pthread_spinlock_t spinlock; // 理论上控制线程修改tank对象内容与GUI线程访问读取tank对象内容需要上锁保证正确，为了减小性能影响，此处我们暂用于保护对tank->shell_list的安全访问
     KeyValue key_value_for_control;
-    /*for muggle enemy*/
+    /*start(for muggle enemy)*/
 #define STEPS_TO_ESCAPE_NUM 6
 #define MOVE_FRONT 0x01
 #define MOVE_BACK  0x02
@@ -133,6 +134,7 @@ typedef struct {
     tk_uint32_t game_time;  // 游戏时间（帧）
     // tk_uint8_t game_over;  // 游戏是否结束
     pthread_spinlock_t spinlock; // 参考tank->spinlock，此锁则是用于保护对tk_shared_game_state.tank_list的安全访问
+    tk_uint8_t stop_game; // 是否暂停游戏
 } GameState;
 
 extern GameState tk_shared_game_state;

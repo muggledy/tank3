@@ -23,4 +23,6 @@ typedef unsigned long  tk_uint32_t;  //0 to 4294967295
 typedef signed long    tk_int32_t;   //-2147483648 to +2147483647
 typedef float          tk_float32_t; //32bits, also is double
 
+#define DEFAULT_FONT_PATH "./assets/Microsoft_JhengHei.ttf"
+
 #endif

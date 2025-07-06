@@ -11,6 +11,7 @@ SDL_Renderer* tk_renderer = NULL;
 TTF_Font* tank_font8 = NULL;
 KeyValue tk_key_value;
 TankMusic tk_music;
+tk_uint8_t tk_gui_stop_game = 0;
 
 // 颜色数组
 SDL_Color tk_colors[] = {
@@ -737,6 +738,9 @@ void render_gui_scene() {
     }
     unlock(&tk_shared_game_state.spinlock);
 
+    // 绘制按钮
+    render_all_buttons(tk_renderer);
+
     // 显示渲染内容
     SDL_RenderPresent(tk_renderer);
 }
@@ -782,6 +786,26 @@ void notify_control_thread_exit() {
     enqueue_event(&tk_event_queue, e);
     notify_event_loop();
     close_write_end_of_pipe();
+}
+
+void notify_control_thread_stop() {
+    Event *e = NULL;
+    e = create_event(EVENT_GAME_STOP);
+    if (!e) {
+        exit(1);
+    }
+    enqueue_event(&tk_event_queue, e);
+    notify_event_loop();
+}
+
+void notify_control_thread_start() {
+    Event *e = NULL;
+    e = create_event(EVENT_GAME_START);
+    if (!e) {
+        exit(1);
+    }
+    enqueue_event(&tk_event_queue, e);
+    notify_event_loop();
 }
 
 void send_key_to_control_thread(int key_type, int key_value) {
@@ -885,6 +909,9 @@ void gui_main_loop() {
                 notify_control_thread_exit();
                 goto out;
             } else if (e.type == SDL_KEYDOWN) { // 处理键盘事件
+                if (tk_gui_stop_game && (e.key.keysym.sym != SDLK_ESCAPE)) {
+                    break;
+                }
                 // printf(">>> key %d down\n", e.key.keysym.sym);
                 // if (mytankptr && (mytankptr->health > 0)) {
                 //     mytankptr->health--;
@@ -933,6 +960,9 @@ void gui_main_loop() {
                         break;
                 }
             } else if (e.type == SDL_KEYUP) {
+                if (tk_gui_stop_game) {
+                    break;
+                }
                 switch (e.key.keysym.sym) {
                     case SDLK_w:
                         // send_key_to_control_thread(EVENT_KEY_RELEASE, KEY_W);
@@ -959,8 +989,11 @@ void gui_main_loop() {
                         PAUSE_MOVE_MUSIC();
                         break;
                 }
+            } else if ((e.type == SDL_MOUSEMOTION) || (e.type == SDL_MOUSEBUTTONDOWN) || (e.type == SDL_MOUSEBUTTONUP)) {
+                handle_event_for_all_buttons(&e);
             }
         }
+        if (!tk_gui_stop_game) {
         // print_op_list();
         iter_op_list(op) {
             if (OP_K_W_DOWN == op) {
@@ -995,7 +1028,7 @@ void gui_main_loop() {
                 send_key_to_control_thread(EVENT_KEY_PRESS, KEY_D);
             }
         }
-
+        }
         // 渲染场景
         render_gui_scene();
         tk_shared_game_state.game_time++;
@@ -1004,6 +1037,22 @@ void gui_main_loop() {
     }
 out:
     return;
+}
+
+#define BUTTON_GAME_RESTART 0x01
+void stop_game_button_click_callback(void* button, void* data) {
+    tk_debug("按钮[%s]被点击! \n", ((Button*)button)->text);
+    if (!TST_FLAG(((Button*)button), user_flag, BUTTON_GAME_RESTART)) {
+        SET_FLAG(((Button*)button), user_flag, BUTTON_GAME_RESTART);
+        strlcpy(((Button*)button)->text, "开始", sizeof(((Button*)button)));
+        tk_gui_stop_game = 1;
+        notify_control_thread_stop();
+    } else {
+        CLR_FLAG(((Button*)button), user_flag, BUTTON_GAME_RESTART);
+        strlcpy(((Button*)button)->text, "暂停", sizeof(((Button*)button)));
+        tk_gui_stop_game = 0;
+        notify_control_thread_start();
+    }
 }
 
 #if 0

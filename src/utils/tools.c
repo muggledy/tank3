@@ -54,3 +54,13 @@ char* uint_to_str(unsigned int num) {
 int random_range(int m, int n) {
     return m + rand() / (RAND_MAX / (n - m + 1) + 1);
 }
+
+size_t strlcpy(char *dst, const char *src, size_t size) {
+    size_t len = strlen(src);
+    if (size > 0) {
+        size_t copy_len = (len < size - 1) ? len : size - 1;
+        memcpy(dst, src, copy_len);
+        dst[copy_len] = '\0';
+    }
+    return len;
+}
