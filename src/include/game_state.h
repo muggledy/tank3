@@ -16,7 +16,9 @@ typedef struct __attribute__((packed)) {
 
 typedef Vector2 Point;
 
+#ifndef POS
 #define POS(point) point.x,point.y
+#endif
 #define POSPTR(point) point->x,point->y
 
 typedef struct __attribute__((packed)) {
@@ -185,6 +187,7 @@ extern int init_idpool();
 extern void cleanup_idpool();
 
 extern void init_game_state();
+extern void delete_all_tanks();
 extern void cleanup_game_state();
 extern Tank* create_tank(tk_uint8_t *name, Point pos, tk_float32_t angle_deg, tk_uint8_t role);
 extern void delete_tank(Tank *tank, int dereference);

@@ -5,9 +5,9 @@
 #include "maze.h"
 #include "debug.h"
 
-// 方向数组
-static int dx[] = {0, -1, 0, 1};
-static int dy[] = {-1, 0, 1, 0};
+// 方向数组：上、左、下、右
+static const int dx[] = {0, -1, 0, 1};
+static const int dy[] = {-1, 0, 1, 0};
 
 // 获取网格ID
 int grid_id(Grid *g) {
@@ -217,6 +217,77 @@ void print_maze_walls(Maze* maze) {
         printf("---+");
     }
     printf("\n");
+}
+
+void bfs_shortest_path_search(void *maze_path_bfs_search_manager) {
+    MazePathBFSearchManager *manager = (MazePathBFSearchManager *)maze_path_bfs_search_manager;
+    MazePathBFSearchNode *current = NULL;
+    Grid next;
+    tk_uint16_t i = 0;
+
+    if (!manager->maze) {
+        return;
+    }
+    if (!is_grid_valid(&manager->start) || !is_grid_valid(&manager->end)) {
+        tk_debug("Error: %s's input param(start(%d,%d) or end(%d,%d)) is not valid\n", __func__, POS(manager->start), POS(manager->end));
+        return;
+    }
+    memset(manager->maze_node_status_tbl, 0, sizeof(manager->maze_node_status_tbl));
+    memset(manager->bfs_queue, 0, sizeof(manager->bfs_queue));
+    manager->front = manager->rear = 0;
+    manager->success = 0;
+
+    manager->bfs_queue[0] = &(manager->maze_node_status_tbl[manager->start.x][manager->start.y]);
+    manager->bfs_queue[0]->current = manager->start;
+    manager->bfs_queue[0]->is_current_visited = 1;
+    manager->rear++;
+
+    while(manager->front < manager->rear) {
+        current = manager->bfs_queue[manager->front++];
+        if (is_two_grids_the_same(&current->current, &manager->end)) {
+            manager->success = 1;
+            if (!is_two_grids_the_same(&manager->start, &manager->end)) {
+                tk_debug("找到BFS最短路径(%d,%d)->(%d,%d)：\n", POS(manager->start), POS(manager->end));
+#if 0
+                next = current->current;
+                for (i = 0; i <= current->steps; i++) {
+                    printf("(%d,%d)", POS(next));
+                    if (0 != manager->maze_node_status_tbl[next.x][next.y].steps) {
+                        printf("<-");
+                        next = manager->maze_node_status_tbl[next.x][next.y].previous;
+                    } else {
+                        break;
+                    }
+                }
+#else
+                FOREACH_BFS_SEARCH_MANAGER_GRID(manager, next) {
+                    printf("(%d,%d)", POS(next));
+                    if (0 != manager->maze_node_status_tbl[next.x][next.y].steps) {
+                        printf("<-");
+                    }
+                }
+#endif
+                printf("\n");
+            }
+            return;
+        }
+        // 探索四个方向
+        for (i = 0; i < 4; i++) {
+            next.x = current->current.x + dx[i];
+            next.y = current->current.y + dy[i];
+            if (is_grid_valid(&next) && !(manager->maze_node_status_tbl[next.x][next.y].is_current_visited) 
+                    && is_two_grids_connected(manager->maze, &current->current, &next)) {
+                manager->bfs_queue[manager->rear] = &(manager->maze_node_status_tbl[next.x][next.y]);
+                manager->bfs_queue[manager->rear]->is_current_visited = 1;
+                manager->bfs_queue[manager->rear]->current = next;
+                manager->bfs_queue[manager->rear]->previous = current->current;
+                manager->bfs_queue[manager->rear]->steps = current->steps + 1;
+                // printf("=> (%d,%d), (%d,%d), steps %u\n", POS(manager->bfs_queue[manager->rear]->current), POS(manager->bfs_queue[manager->rear]->previous), 
+                //     manager->bfs_queue[manager->rear]->steps);
+                manager->rear++;
+            }
+        }
+    }
 }
 
 #if 0

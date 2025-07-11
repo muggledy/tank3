@@ -10,6 +10,7 @@
 
 IDPool* tk_idpool = NULL;
 GameState tk_shared_game_state;
+MazePathBFSearchManager tk_bfs_search_manager;
 
 Point tk_maze_offset = {20,20}; // 默认生成的地图左上角为(0,0)，导致地图位于窗口最左上角不太美观，整体将地图往右下移动一段偏移距离
 
@@ -245,10 +246,12 @@ void init_game_state() {
     //         tk_shared_game_state.blocks[i].end.x, tk_shared_game_state.blocks[i].end.y);
     //     printf("\n");
     // }
+    tk_bfs_search_manager.maze = &(tk_shared_game_state.maze);
+    tk_bfs_search_manager.bfs_search = bfs_shortest_path_search;
     init_spinlock(&tk_shared_game_state.spinlock);
 }
 
-void cleanup_game_state() {
+void delete_all_tanks() {
     Tank *tank = NULL;
     Tank *tmp = NULL;
     tk_uint8_t tank_num = 0;
@@ -260,12 +263,17 @@ void cleanup_game_state() {
         delete_tank(tank, 0);
         tank_num++;
     }
+    tk_debug("total %u tanks are all freed\n", tank_num);
+}
+
+void cleanup_game_state() {
+    delete_all_tanks();
     if (tk_shared_game_state.blocks) {
         free(tk_shared_game_state.blocks);
     }
     tk_shared_game_state.blocks_num = 0;
+    // tk_bfs_search_manager.maze = NULL;
     destroy_spinlock(&tk_shared_game_state.spinlock);
-    tk_debug("total %u tanks are all freed\n", tank_num);
 }
 
 Point get_line_center(const Point *p1, const Point *p2) {

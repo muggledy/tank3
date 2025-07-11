@@ -12,6 +12,7 @@ TTF_Font* tank_font8 = NULL;
 KeyValue tk_key_value;
 TankMusic tk_music;
 tk_uint8_t tk_gui_stop_game = 0;
+Button* tk_stop_game_button = NULL;
 
 // 颜色数组
 SDL_Color tk_colors[] = {
@@ -1039,6 +1040,19 @@ out:
     return;
 }
 
+int init_simple_game_tanks() {
+    if (mytankptr) {
+        delete_tank(mytankptr, 1);
+    }
+    create_tank("yangdai", get_random_grid_pos_for_tank(), 300, TANK_ROLE_SELF);
+    create_tank("muggle-0", get_random_grid_pos_for_tank(), random_range(0, 360), TANK_ROLE_ENEMY_MUGGLE);
+    if (!mytankptr) {
+        return -1;
+    }
+    gui_init_all_tank();
+    return 0;
+}
+
 #define BUTTON_GAME_RESTART 0x01
 void stop_game_button_click_callback(void* button, void* data) {
     tk_debug("按钮[%s]被点击! \n", ((Button*)button)->text);
@@ -1053,6 +1067,35 @@ void stop_game_button_click_callback(void* button, void* data) {
         tk_gui_stop_game = 0;
         notify_control_thread_start();
     }
+}
+
+void restart_game_button_click_callback(void* button, void* data) {
+    tk_debug("按钮[%s]被点击! \n", ((Button*)button)->text);
+    delete_all_tanks();
+    if (tk_gui_stop_game || tk_shared_game_state.stop_game) {
+        if (tk_stop_game_button) {
+            CLR_FLAG(tk_stop_game_button, user_flag, BUTTON_GAME_RESTART);
+            strlcpy(tk_stop_game_button->text, "暂停", sizeof(((Button*)button)));
+        } else {
+            exit(1);
+        }
+        notify_control_thread_start();
+        tk_gui_stop_game = 0;
+        tk_shared_game_state.stop_game = 0;
+    }
+    init_simple_game_tanks();
+}
+
+int init_game_buttons() {
+    if ((tk_stop_game_button = create_button(tk_maze_offset.x+GRID_SIZE*HORIZON_GRID_NUMBER+10, tk_maze_offset.y, 50, 30, 8, 2, 
+        "暂停", stop_game_button_click_callback, NULL)) == NULL) {
+        return -1;
+    }
+    if (create_button(tk_maze_offset.x+GRID_SIZE*HORIZON_GRID_NUMBER+10, tk_maze_offset.y+40, 82, 30, 8, 2, 
+        "重开一局", restart_game_button_click_callback, NULL) == NULL) {
+        return -1;
+    }
+    return 0;
 }
 
 #if 0

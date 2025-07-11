@@ -96,7 +96,7 @@ extern void gui_init_all_tank();
 extern void notify_control_thread_exit();
 // extern void send_key_to_control_thread(int key_type, int key_value);
 extern void gui_main_loop();
-
-extern void stop_game_button_click_callback(void* button, void* data);
+extern int init_simple_game_tanks();
+extern int init_game_buttons();
 
 #endif

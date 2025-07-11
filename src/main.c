@@ -27,13 +27,11 @@ void pin_thread_to_cpu(pthread_t thread, int cpu_id) {
 void* gui_thread(void* arg) {
     reset_debug_prefix("gui");
     // int ret = -1;
-
     tk_debug("GUI thread started...\n");
     // 确认游戏资源是否存在
     if (check_resource_file() != 0) {
         return NULL; //ret;
     }
-
     // 结合时间和进程ID作为随机种子（用于爆炸粒子）
     srand((unsigned int)time(NULL) ^ (unsigned int)getpid());
 
@@ -50,14 +48,12 @@ void* gui_thread(void* arg) {
         goto out;
     }
     init_game_state();
-    create_tank("yangdai", get_random_grid_pos_for_tank(), 300, TANK_ROLE_SELF);
-    create_tank("muggle-0", get_random_grid_pos_for_tank(), random_range(0, 360), TANK_ROLE_ENEMY_MUGGLE);
-    if (!mytankptr) {
+    if (init_simple_game_tanks() != 0) { // 初始化一局简单游戏的坦克对象
         goto out;
     }
-    gui_init_all_tank();
-    create_button(tk_maze_offset.x+GRID_SIZE*HORIZON_GRID_NUMBER+10, tk_maze_offset.y, 50, 30, 8, 2, 
-        "暂停", stop_game_button_click_callback, NULL);
+    if (init_game_buttons() != 0) {
+        goto out;
+    }
     // 主循环
     gui_main_loop();
     // ret = 0;

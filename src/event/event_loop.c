@@ -217,18 +217,24 @@ void handle_event(Event* event) {
         tk_debug("warning: your tank is dead, game is over\n");
         if (event->type == EVENT_QUIT) {
             goto quit_event_loop;
+        } else if (event->type == EVENT_GAME_STOP) {
+            goto recv_stop_event;
+        } else if (event->type == EVENT_GAME_START) {
+            goto recv_start_event;
         }
         return;
     }
     switch (event->type) {
     case EVENT_GAME_STOP:
     {
+recv_stop_event:
         tk_debug("暂停游戏\n");
         tk_shared_game_state.stop_game = 1;
     }
     break;
     case EVENT_GAME_START:
     {
+recv_start_event:
         tk_debug("继续游戏\n");
         tk_shared_game_state.stop_game = 0;
     }
