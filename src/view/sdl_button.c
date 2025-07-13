@@ -140,7 +140,7 @@ void render_all_buttons(SDL_Renderer* renderer) {
 #endif
 }
 
-void handle_event_for_all_buttons(SDL_Event* event) {
+void handle_click_event_for_all_buttons(SDL_Event* event) {
     Button *button = NULL;
 #ifdef BUTTON_LOCK
     lock(&tk_button_list_op_spinlock);
@@ -165,5 +165,6 @@ void cleanup_all_buttons() {
     }
 #ifdef BUTTON_LOCK
     unlock(&tk_button_list_op_spinlock);
+    destroy_spinlock(&tk_button_list_op_spinlock);
 #endif
 }

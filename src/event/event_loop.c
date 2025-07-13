@@ -4,6 +4,8 @@
 #include "game_state.h"
 #include "debug.h"
 
+extern MazePathBFSearchManager tk_bfs_search_manager;
+
 // 全局事件基（仅控制线程使用）
 struct event_base* tk_event_base = NULL;
 // 用于线程通信的管道（线程共享，控制线程读端，GUI线程写端）
@@ -212,6 +214,7 @@ void notify_event_loop() {
 
 // 处理来自本地GUI线程或其他（TODO：如网络）的坦克事件
 void handle_event(Event* event) {
+    Grid start;
     if (!event) return;
     if (!mytankptr || TST_FLAG(mytankptr, flags, TANK_DEAD)) {
         tk_debug("warning: your tank is dead, game is over\n");
@@ -237,6 +240,24 @@ recv_stop_event:
 recv_start_event:
         tk_debug("继续游戏\n");
         tk_shared_game_state.stop_game = 0;
+    }
+    break;
+    case EVENT_PATH_SEARCH:
+    {
+        /*点击地图任意网格（终点网格），则自动搜索当前我的坦克到指定网格的最短路径，并且GUI会绘制该路径，若要取消绘制，则再次点击终点网格*/
+        tk_debug("收到路径搜索请求mytank_position(%f,%f)->destination_grid(%d,%d)\n", POS(mytankptr->position), POS(event->data.path_search_request.end));
+        start = get_grid_by_tank_position(&mytankptr->position);
+        lock(&tk_bfs_search_manager.spinlock);
+        if (is_two_grids_the_same(&event->data.path_search_request.end, &tk_bfs_search_manager.end) && tk_bfs_search_manager.success) {
+            tk_bfs_search_manager.success = 0; //相当于置为invalid，这样GUI就不会再去绘制路径了
+            tk_debug("取消路径搜索\n");
+        } else if (!(is_two_grids_the_same(&start, &tk_bfs_search_manager.start) 
+            && is_two_grids_the_same(&event->data.path_search_request.end, &tk_bfs_search_manager.end) && (tk_bfs_search_manager.success))) {
+            tk_bfs_search_manager.start = start;
+            tk_bfs_search_manager.end = event->data.path_search_request.end;
+            tk_bfs_search_manager.bfs_search(&tk_bfs_search_manager);
+        }
+        unlock(&tk_bfs_search_manager.spinlock);
     }
     break;
     case EVENT_KEY_PRESS:

@@ -17,9 +17,9 @@ typedef struct __attribute__((packed)) {
 typedef Vector2 Point;
 
 #ifndef POS
-#define POS(point) point.x,point.y
+#define POS(point) (point).x,(point).y
 #endif
-#define POSPTR(point) point->x,point->y
+#define POSPTR(point) (point)->x,(point)->y
 
 typedef struct __attribute__((packed)) {
 	Point lefttop;

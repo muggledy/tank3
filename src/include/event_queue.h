@@ -4,14 +4,16 @@
 #include "queue.h"
 #include <pthread.h>
 #include "global.h"
+#include "maze.h"
 
 // 事件类型枚举
 typedef enum {
     EVENT_KEY_PRESS,   //key down
     EVENT_KEY_RELEASE, //key up
     EVENT_QUIT,
-    EVENT_GAME_STOP, // 游戏暂停（控制线程停止碰撞检测等逻辑处理）
-    EVENT_GAME_START // 游戏开始
+    EVENT_GAME_STOP,  // 游戏暂停（控制线程停止碰撞检测等逻辑处理）
+    EVENT_GAME_START, // 游戏开始
+    EVENT_PATH_SEARCH // 地图路径搜索请求（请求数据为路径终点，起点是我的坦克当前位置）
 } EventType;
 
 // 按键码枚举
@@ -28,11 +30,16 @@ typedef enum {
     KEY_ESC
 } KeyCode;
 
+typedef struct {
+    Grid end;
+} MazePathSearchRequest;
+
 // 事件节点结构
 typedef struct _Event {
     EventType type;
     union {
         KeyCode key;
+        MazePathSearchRequest path_search_request;
     } data;
     TAILQ_ENTRY(_Event) chain;
 } Event;

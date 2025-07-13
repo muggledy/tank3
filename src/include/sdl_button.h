@@ -10,7 +10,7 @@ typedef enum {
     BUTTON_NORMAL,    // 正常状态
     BUTTON_HOVER,     // 鼠标悬停
     BUTTON_PRESSED,   // 鼠标按下
-    BUTTON_DISABLED   // 禁用状态
+    BUTTON_DISABLED   // 禁用状态(当前暂未使用)
 } ButtonState;
 
 typedef struct _Button {
@@ -32,7 +32,7 @@ typedef struct _Button {
 extern Button* create_button(int x, int y, int w, int h, int text_offset_x, int text_offset_y, 
                 const char* text, void (*onClick)(void*, void*), void* callbackData);
 extern void render_all_buttons(SDL_Renderer* renderer) ;
-extern void handle_event_for_all_buttons(SDL_Event* event);
+extern void handle_click_event_for_all_buttons(SDL_Event* event);
 extern void cleanup_all_buttons();
 
 #endif

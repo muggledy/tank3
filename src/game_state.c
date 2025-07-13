@@ -246,9 +246,12 @@ void init_game_state() {
     //         tk_shared_game_state.blocks[i].end.x, tk_shared_game_state.blocks[i].end.y);
     //     printf("\n");
     // }
-    tk_bfs_search_manager.maze = &(tk_shared_game_state.maze);
-    tk_bfs_search_manager.bfs_search = bfs_shortest_path_search;
     init_spinlock(&tk_shared_game_state.spinlock);
+    {
+        tk_bfs_search_manager.maze = &(tk_shared_game_state.maze);
+        tk_bfs_search_manager.bfs_search = bfs_shortest_path_search;
+        init_spinlock(&(tk_bfs_search_manager.spinlock));
+    }
 }
 
 void delete_all_tanks() {
@@ -272,7 +275,10 @@ void cleanup_game_state() {
         free(tk_shared_game_state.blocks);
     }
     tk_shared_game_state.blocks_num = 0;
-    // tk_bfs_search_manager.maze = NULL;
+    {
+        tk_bfs_search_manager.maze = NULL;
+        destroy_spinlock(&(tk_bfs_search_manager.spinlock));
+    }
     destroy_spinlock(&tk_shared_game_state.spinlock);
 }
 

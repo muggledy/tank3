@@ -5,6 +5,8 @@
 #include "debug.h"
 #include "event_loop.h"
 
+extern MazePathBFSearchManager tk_bfs_search_manager;
+
 // SDL相关变量
 SDL_Window*   tk_window = NULL;
 SDL_Renderer* tk_renderer = NULL;
@@ -702,11 +704,54 @@ void draw_shell(SDL_Renderer* renderer, Shell *shell) {
 // 对目标位置pos1进行偏移处理（pos2为偏移量）
 #define POS_OFFSET(pos1, pos2) (pos1).x+(pos2).x,(pos1).y+(pos2).y
 
+SDL_Color search_path_grid_color = {255, 182, 193, 50};  // RGBA格式
+
+// 判断next网格在current网格的上下左右方位：1、2、3、4（前提需保证，它俩上下左右相邻）
+int get_relation_of_two_grids(Grid *current, Grid *next) {
+    if (((current->x < 0) || (current->y < 0)) || ((next->x < 0) || (next->y < 0))) {
+        return 0;
+    }
+    if (next->x == current->x) {
+        if (next->y < current->y) {
+            return 1;
+        } else if (next->y > current->y) {
+            return 2;
+        }
+    } else if (next->y == current->y) {
+        if (next->x < current->x) {
+            return 3;
+        } else if (next->x > current->x) {
+            return 4;
+        }
+    }
+    return 0;
+}
+
+void fill_grid(SDL_Renderer* renderer, Grid *previous, Grid *current, Grid *next) {
+    int relation1 = get_relation_of_two_grids(current, previous);
+    int relation2 = get_relation_of_two_grids(current, next);
+    SDL_SetRenderDrawColor(renderer, COLOR2PARAM(search_path_grid_color));
+    SDL_Rect rect = {current->x * GRID_SIZE + tk_maze_offset.x + 1, current->y * GRID_SIZE + tk_maze_offset.y + 1, GRID_SIZE-2, GRID_SIZE-2};
+    if (relation1 == 1) {
+        rect.y -= 2;
+        rect.h += 2;
+    } else if (relation1 == 2) {
+        rect.h += 2;
+    } else if (relation1 == 3) {
+        rect.x -= 2;
+        rect.w += 2;
+    } else if (relation1 == 4) {
+        rect.w += 2;
+    }
+    SDL_RenderFillRect(renderer, &rect);
+}
+
 // 渲染场景
 void render_gui_scene() {
     // tk_debug("render_gui_scene...\n");
     Tank *tank = NULL;
     Shell *shell = NULL;
+    Grid previous = {-1, -1}, current, next;
 
     // 清空屏幕
     SDL_SetRenderDrawColor(tk_renderer, COLOR2PARAM(ID2COLOR(TK_WHITE)));
@@ -718,6 +763,18 @@ void render_gui_scene() {
         SDL_RenderDrawLine(tk_renderer, POS_OFFSET(tk_shared_game_state.blocks[i].start, tk_maze_offset), 
             POS_OFFSET(tk_shared_game_state.blocks[i].end, tk_maze_offset));
     }
+
+    // 绘制搜索路径
+    SDL_SetRenderDrawBlendMode(tk_renderer, SDL_BLENDMODE_BLEND); // 启用混合
+    lock(&tk_bfs_search_manager.spinlock);
+    if (tk_bfs_search_manager.success) {
+        FOREACH_BFS_SEARCH_MANAGER_GRID(&tk_bfs_search_manager, current) {
+            next = NEXT_BFS_SEARCH_GRID(&tk_bfs_search_manager, current);
+            fill_grid(tk_renderer, &previous, &current, &next);
+            previous = current;
+        }
+    }
+    unlock(&tk_bfs_search_manager.spinlock);
 
     // 渲染坦克和炮弹
     lock(&tk_shared_game_state.spinlock);
@@ -895,6 +952,40 @@ static int get_op_list_num() {
     return (OP_LIST_LEN - op_cursor - 1);
 }
 
+int get_grid_by_key_mouse(int mouseX, int mouseY, Grid *grid) {
+    Point p = {mouseX, mouseY};
+    if (((mouseX > tk_maze_offset.x) && (mouseX < (HORIZON_GRID_NUMBER*GRID_SIZE+tk_maze_offset.x))) 
+        && ((mouseY > tk_maze_offset.y) && (mouseY < (VERTICAL_GRID_NUMBER*GRID_SIZE+tk_maze_offset.y)))) {
+        *grid = get_grid_by_tank_position(&p);
+        return 0;
+    } else {
+        return -1;
+    }
+}
+
+void send_maze_path_search_request_to_control_thread(Grid *end) {
+    Event *e = NULL;
+    e = create_event(EVENT_PATH_SEARCH);
+    if (!e) {
+        exit(1);
+    }
+    e->data.path_search_request.end = *end;
+    enqueue_event(&tk_event_queue, e);
+    notify_event_loop();
+}
+
+void handle_click_event_for_all_grids(SDL_Event* event) {
+    if (event->type != SDL_MOUSEBUTTONDOWN) return;
+    int mouseX, mouseY;
+    Uint32 mouseState = SDL_GetMouseState(&mouseX, &mouseY);
+    Grid grid;
+
+    if (get_grid_by_key_mouse(mouseX, mouseY, &grid) == 0) {
+        tk_debug_internal(DEBUG_GUI_THREAD_DETAIL, "网格(%d,%d)被点击\n", POS(grid));
+        send_maze_path_search_request_to_control_thread(&grid);
+    }
+}
+
 void gui_main_loop() {
     int quit = 0;
     SDL_Event e;
@@ -991,7 +1082,8 @@ void gui_main_loop() {
                         break;
                 }
             } else if ((e.type == SDL_MOUSEMOTION) || (e.type == SDL_MOUSEBUTTONDOWN) || (e.type == SDL_MOUSEBUTTONUP)) {
-                handle_event_for_all_buttons(&e);
+                handle_click_event_for_all_buttons(&e);
+                handle_click_event_for_all_grids(&e);
             }
         }
         if (!tk_gui_stop_game) {

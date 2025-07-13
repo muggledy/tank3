@@ -2,6 +2,7 @@
     #define __MAZE_H__
 
 #include "global.h"
+#include <pthread.h>
 
 // 定义常量
 #define HORIZON_GRID_NUMBER 8
@@ -57,6 +58,7 @@ typedef struct {
     tk_uint16_t rear;  //rear游标用于指示放入bfs_queue中的有效元素的末尾位置
     void (*bfs_search)(void*); //入参就是当前Manager管理器对象
     tk_uint8_t success; //搜索是否成功标记
+    pthread_spinlock_t spinlock; //GUI线程访问搜索结果以及控制线程计算搜索路径可能并行，需要加锁
 } MazePathBFSearchManager;
 
 #if 0
@@ -75,8 +77,12 @@ typedef struct {
          (manager)->success && (i <= (manager)->maze_node_status_tbl[(manager)->end.x][(manager)->end.y].steps); \
          i++, next = (manager)->maze_node_status_tbl[next.x][next.y].previous)
 
+#define NEXT_BFS_SEARCH_GRID(manager, current) \
+    (manager)->maze_node_status_tbl[current.x][current.y].steps ? (manager)->maze_node_status_tbl[current.x][current.y].previous : \
+    (Grid){-1, -1}
+
 #ifndef POS
-#define POS(grid) grid.x,grid.y
+#define POS(grid) (grid).x,(grid).y
 #endif
 
 extern void maze_init(Maze* maze);
